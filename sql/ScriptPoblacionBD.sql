@@ -27,9 +27,10 @@ BEGIN
   FOR i IN 1..50 LOOP
     INSERT INTO Usuarios (usuario_id, nombre, apellido, email, contrasenia, fecha_registro, activo, tipo_usuario_id)
     VALUES (i, 'Nombre'||i, 'Apellido'||i, 'user'||i||'@correo.com', 'clave'||i, SYSTIMESTAMP, 'S',
-            CASE WHEN i <= 25 THEN 2 ELSE 1 END); -- 1: estudiante, 2: profesor
+            CASE WHEN i <= 25 THEN 2 ELSE 1 END);
   END LOOP;
 END;
+/
 
 --Cursos (25 registros)
 BEGIN
@@ -38,14 +39,16 @@ BEGIN
     VALUES (i, 'Curso '||i, 'Descripción del curso '||i, 'S');
   END LOOP;
 END;
+/
 
---Grupos (25 registros)
+-- Grupos (25 registros)
 BEGIN
   FOR i IN 1..25 LOOP
     INSERT INTO Grupos (grupo_id, nombre, lugar, horario, profesor_id, curso_id)
     VALUES (i, 'Grupo '||i, 'Aula '||i, 'Lunes 8-10AM', i, i);
   END LOOP;
 END;
+/
 
 --Temas (25 registros)
 BEGIN
@@ -54,6 +57,7 @@ BEGIN
     VALUES (i, 'Tema '||i, 'Contenido del tema '||i, i);
   END LOOP;
 END;
+/
 
 --Unidades (25 registros)
 BEGIN
@@ -62,13 +66,18 @@ BEGIN
     VALUES (i, 'Unidad '||i, 'Descripción unidad '||i, i, i);
   END LOOP;
 END;
-
+/
 --==========3. Tablas Intermedias (mínimo 40 registros)============
 
---Unidades_Temas (40 registros) MALAAAAAA
+-- Unidades_Temas (40 registros corregidos)
 BEGIN
   FOR i IN 1..40 LOOP
     INSERT INTO Unidades_Temas (unidad_id, tema_id, orden)
-    VALUES (MOD(i, 25) + 1, MOD(i, 25) + 1, i);
+    VALUES (
+        MOD(i-1, 25) + 1, 
+        (TRUNC((i-1)/25) + MOD(i-1, 25)) + 1,
+        i
+    );
   END LOOP;
 END;
+/
