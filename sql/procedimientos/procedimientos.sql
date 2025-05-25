@@ -598,7 +598,9 @@ EXCEPTION
         RAISE;
 END sp_agregar_pregunta_examen;
 
-create or replace NONEDITIONABLE PROCEDURE sp_presentar_examen_estudiante (
+/
+
+create or replace PROCEDURE sp_presentar_examen_estudiante (
     p_estudiante_id     IN NUMBER,
     p_examen_id         IN NUMBER,
     p_respuestas        IN SYS_REFCURSOR, -- Cursor con las respuestas del estudiante
