@@ -1,12 +1,80 @@
--- Create required sequence
-CREATE SEQUENCE SQ_INTENTO_EXAMEN_ID
-START WITH 1
-INCREMENT BY 1
-NOCACHE
-NOCYCLE;
+/*==============================================================*/
+/* FUNCTIONS                                                     */
+/*==============================================================*/
+
+-- Función para validar asignación del profesor al curso
+CREATE OR REPLACE FUNCTION fn_profesor_pertenece_curso(
+  p_profesor_id IN NUMBER,
+  p_grupo_id IN NUMBER
+) RETURN BOOLEAN IS
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_count
+  FROM Grupos
+  WHERE grupo_id = p_grupo_id AND profesor_id = p_profesor_id;
+  
+  RETURN v_count > 0;
+END;
 /
 
--- Función para verificar elegibilidad del estudiante
+-- Función para validar que una pregunta pertenece a los temas del curso del examen
+CREATE OR REPLACE FUNCTION fn_pregunta_pertenece_examen(
+  p_pregunta_id IN NUMBER,
+  p_examen_id IN NUMBER
+) RETURN BOOLEAN IS
+  v_count NUMBER;
+  v_padre_id NUMBER;
+  v_padre_pertenece BOOLEAN := FALSE;
+BEGIN
+  -- Primero verificar si es una subpregunta
+  SELECT pregunta_padre_id
+  INTO v_padre_id
+  FROM Preguntas
+  WHERE pregunta_id = p_pregunta_id
+  AND pregunta_padre_id IS NOT NULL;
+  
+  -- Si tiene padre, verificar si el padre pertenece al examen
+  IF v_padre_id IS NOT NULL THEN
+    -- Verificar si el padre pertenece a los temas del curso
+    SELECT COUNT(*)
+    INTO v_count
+    FROM Preguntas p
+    JOIN Temas t ON p.tema_id = t.tema_id
+    JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+    JOIN Unidades u ON ut.unidad_id = u.unidad_id
+    JOIN Cursos c ON u.curso_id = c.curso_id
+    JOIN Grupos g ON c.curso_id = g.curso_id
+    JOIN Examenes e ON g.grupo_id = e.grupo_id
+    WHERE p.pregunta_id = v_padre_id
+    AND e.examen_id = p_examen_id;
+    
+    v_padre_pertenece := (v_count > 0);
+    
+    -- Si el padre pertenece, la subpregunta también pertenece
+    IF v_padre_pertenece THEN
+      RETURN TRUE;
+    END IF;
+  END IF;
+  
+  -- Verificar si la pregunta pertenece directamente a algún tema del curso
+  SELECT COUNT(*)
+  INTO v_count
+  FROM Preguntas p
+  JOIN Temas t ON p.tema_id = t.tema_id
+  JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+  JOIN Unidades u ON ut.unidad_id = u.unidad_id
+  JOIN Cursos c ON u.curso_id = c.curso_id
+  JOIN Grupos g ON c.curso_id = g.curso_id
+  JOIN Examenes e ON g.grupo_id = e.grupo_id
+  WHERE p.pregunta_id = p_pregunta_id
+  AND e.examen_id = p_examen_id;
+  
+  RETURN v_count > 0;
+END;
+/
+
+-- Verificar elegibilidad del estudiante
 CREATE OR REPLACE FUNCTION fn_verificar_elegibilidad(
   p_estudiante_id IN NUMBER,
   p_examen_id IN NUMBER
@@ -53,119 +121,11 @@ BEGIN
   WHERE estudiante_id = p_estudiante_id AND examen_id = p_examen_id;
   
   -- Múltiples intentos podrían ser controlados con otra tabla de configuración
-  
   RETURN 'ELEGIBLE';
 END;
 /
 
--- Trigger para validar tiempo durante el examen
-CREATE OR REPLACE TRIGGER trg_validar_tiempo_examen
-BEFORE INSERT ON Respuestas_Estudiantes
-FOR EACH ROW
-DECLARE
-  v_fecha_inicio TIMESTAMP;
-  v_tiempo_limite NUMBER;
-  v_tiempo_actual NUMBER;
-  v_examen_id NUMBER;
-BEGIN
-  -- Obtener detalles del intento actual
-  SELECT ie.fecha_inicio, e.tiempo_limite, ie.examen_id
-  INTO v_fecha_inicio, v_tiempo_limite, v_examen_id
-  FROM Intentos_Examen ie
-  JOIN Examenes e ON ie.examen_id = e.examen_id
-  WHERE ie.intento_examen_id = :NEW.intento_examen_id;
-  
-  -- Calcular tiempo transcurrido en minutos
-  v_tiempo_actual := (EXTRACT(DAY FROM (SYSTIMESTAMP - v_fecha_inicio)) * 24 * 60) +
-                     (EXTRACT(HOUR FROM (SYSTIMESTAMP - v_fecha_inicio)) * 60) +
-                     EXTRACT(MINUTE FROM (SYSTIMESTAMP - v_fecha_inicio));
-  
-  -- Verificar si excede el tiempo límite
-  IF v_tiempo_actual > v_tiempo_limite THEN
-    RAISE_APPLICATION_ERROR(-20001, 'Se ha excedido el tiempo límite para este examen');
-  END IF;
-END;
-/
-
--- Procedimiento para calificar examen
-CREATE OR REPLACE PROCEDURE sp_calificar_examen(
-  p_intento_examen_id IN NUMBER
-) AS
-  v_examen_id NUMBER;
-  v_total_peso NUMBER := 0;
-  v_puntaje_obtenido NUMBER := 0;
-  v_puntaje_final NUMBER;
-BEGIN
-  -- Obtener el examen
-  SELECT examen_id INTO v_examen_id
-  FROM Intentos_Examen
-  WHERE intento_examen_id = p_intento_examen_id;
-  
-  -- Calcular el peso total de las preguntas
-  SELECT SUM(pe.peso)
-  INTO v_total_peso
-  FROM Preguntas_Examenes pe
-  WHERE pe.examen_id = v_examen_id;
-  
-  -- Calcular puntaje obtenido
-  SELECT COALESCE(SUM(re.puntaje_obtenido), 0)
-  INTO v_puntaje_obtenido
-  FROM Respuestas_Estudiantes re
-  JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
-  WHERE re.intento_examen_id = p_intento_examen_id;
-  
-  -- Calcular puntaje final (regla de tres)
-  IF v_total_peso > 0 THEN
-    -- Si el peso total es mayor a 100, normalizar
-    IF v_total_peso > 100 THEN
-      v_puntaje_final := (v_puntaje_obtenido / v_total_peso) * 100;
-    ELSE
-      v_puntaje_final := v_puntaje_obtenido;
-    END IF;
-  ELSE
-    v_puntaje_final := 0;
-  END IF;
-  
-  -- Actualizar el intento del examen
-  UPDATE Intentos_Examen
-  SET puntaje_total = v_puntaje_final,
-      fecha_fin = SYSTIMESTAMP
-  WHERE intento_examen_id = p_intento_examen_id;
-  
-  COMMIT;
-END;
-/
-
--- Procedimiento para verificar si la entrega está dentro del tiempo límite
-CREATE OR REPLACE PROCEDURE sp_verificar_tiempo_entrega(
-    p_intento_id IN NUMBER,
-    p_resultado OUT VARCHAR2
-) AS
-    v_fecha_inicio TIMESTAMP;
-    v_fecha_fin TIMESTAMP;
-    v_tiempo_limite NUMBER;
-    v_examen_id NUMBER;
-BEGIN
-    -- Obtener datos del intento
-    SELECT ie.fecha_inicio, SYSTIMESTAMP, e.tiempo_limite, ie.examen_id
-    INTO v_fecha_inicio, v_fecha_fin, v_tiempo_limite, v_examen_id
-    FROM Intentos_Examen ie
-    JOIN Examenes e ON ie.examen_id = e.examen_id
-    WHERE ie.intento_examen_id = p_intento_id;
-    
-    -- Calcular tiempo transcurrido en minutos
-    IF (EXTRACT(DAY FROM (v_fecha_fin - v_fecha_inicio)) * 24 * 60 +
-        EXTRACT(HOUR FROM (v_fecha_fin - v_fecha_inicio)) * 60 +
-        EXTRACT(MINUTE FROM (v_fecha_fin - v_fecha_inicio))) > v_tiempo_limite THEN
-        
-        p_resultado := 'ERROR: Tiempo de entrega excedido';
-    ELSE
-        p_resultado := 'EXITO: Entrega dentro del tiempo permitido';
-    END IF;
-END;
-/
-
--- Función para calificar preguntas de opción única
+-- Calificar preguntas de opción única
 CREATE OR REPLACE FUNCTION fn_calificar_opcion_unica(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -214,7 +174,7 @@ BEGIN
 END;
 /
 
--- Función para calificar preguntas de opción múltiple
+-- Calificar preguntas de opción múltiple
 CREATE OR REPLACE FUNCTION fn_calificar_opcion_multiple(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -278,7 +238,7 @@ BEGIN
 END;
 /
 
--- Función para calificar preguntas de verdadero/falso
+-- Calificar preguntas de verdadero/falso
 CREATE OR REPLACE FUNCTION fn_calificar_verdadero_falso(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -326,7 +286,7 @@ BEGIN
 END;
 /
 
--- Función para calificar preguntas de ordenamiento
+-- Calificar preguntas de ordenamiento
 CREATE OR REPLACE FUNCTION fn_calificar_ordenamiento(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -370,7 +330,7 @@ BEGIN
 END;
 /
 
--- Función para calificar preguntas de emparejamiento
+-- Calificar preguntas de emparejamiento
 CREATE OR REPLACE FUNCTION fn_calificar_emparejamiento(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -414,7 +374,7 @@ BEGIN
 END;
 /
 
--- Función para calificar preguntas de completar
+-- Calificar preguntas de completar
 CREATE OR REPLACE FUNCTION fn_calificar_completar(
     p_respuesta_estudiante_id IN NUMBER
 ) RETURN NUMBER AS
@@ -470,137 +430,7 @@ BEGIN
 END;
 /
 
--- Procedimiento para calificar un examen completo
-CREATE OR REPLACE PROCEDURE sp_calificar_examen_completo(
-    p_intento_id IN NUMBER
-) AS
-    v_total_puntos NUMBER := 0;
-    v_puntos_posibles NUMBER := 0;
-    v_puntaje_final NUMBER;
-    v_examen_id NUMBER;
-    v_total_preguntas NUMBER := 0;
-    v_preguntas_respondidas NUMBER := 0;
-    v_next_id NUMBER;
-    v_es_subpregunta BOOLEAN;
-    v_pregunta_padre_id NUMBER;
-BEGIN
-    -- Obtener el ID del examen
-    SELECT examen_id 
-    INTO v_examen_id
-    FROM Intentos_Examen
-    WHERE intento_examen_id = p_intento_id;
-    
-    -- Obtener número total de preguntas en el examen
-    SELECT COUNT(*)
-    INTO v_total_preguntas
-    FROM Preguntas_Examenes
-    WHERE examen_id = v_examen_id;
-    
-    -- Obtener número de preguntas respondidas
-    SELECT COUNT(DISTINCT pe.pregunta_examen_id)
-    INTO v_preguntas_respondidas
-    FROM Respuestas_Estudiantes re
-    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
-    WHERE re.intento_examen_id = p_intento_id;
-    
-    -- Calificar cada respuesta según el tipo de pregunta
-    FOR respuesta IN (
-        SELECT 
-            re.respuesta_estudiante_id,
-            p.tipo_pregunta_id,
-            p.pregunta_id,
-            p.pregunta_padre_id,
-            pe.pregunta_examen_id
-        FROM Respuestas_Estudiantes re
-        JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
-        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
-        WHERE re.intento_examen_id = p_intento_id
-        ORDER BY pe.orden -- Ordenar para procesar preguntas en el orden correcto
-    ) LOOP
-        -- Verificar si es una subpregunta
-        v_es_subpregunta := (respuesta.pregunta_padre_id IS NOT NULL);
-        
-        -- Calificar según el tipo de pregunta (independientemente si es subpregunta)
-        IF respuesta.tipo_pregunta_id = 1 THEN -- Opción múltiple
-            v_total_puntos := v_total_puntos + fn_calificar_opcion_multiple(respuesta.respuesta_estudiante_id);
-        ELSIF respuesta.tipo_pregunta_id = 2 THEN -- Opción única
-            v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
-        ELSIF respuesta.tipo_pregunta_id = 3 THEN -- Verdadero/Falso
-            v_total_puntos := v_total_puntos + fn_calificar_verdadero_falso(respuesta.respuesta_estudiante_id);
-        ELSIF respuesta.tipo_pregunta_id = 4 THEN -- Ordenamiento
-            v_total_puntos := v_total_puntos + fn_calificar_ordenamiento(respuesta.respuesta_estudiante_id);
-        ELSIF respuesta.tipo_pregunta_id = 5 THEN -- Emparejamiento
-            v_total_puntos := v_total_puntos + fn_calificar_emparejamiento(respuesta.respuesta_estudiante_id);
-        ELSIF respuesta.tipo_pregunta_id = 6 THEN -- Completar
-            v_total_puntos := v_total_puntos + fn_calificar_completar(respuesta.respuesta_estudiante_id);
-        END IF;
-    END LOOP;
-    
-    -- Insertar respuestas en blanco para preguntas no contestadas
-    FOR pregunta_sin_respuesta IN (
-        SELECT 
-            pe.pregunta_examen_id, 
-            pe.peso, 
-            p.tipo_pregunta_id,
-            p.pregunta_padre_id
-        FROM Preguntas_Examenes pe
-        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
-        WHERE pe.examen_id = v_examen_id
-        AND NOT EXISTS (
-            SELECT 1
-            FROM Respuestas_Estudiantes re
-            WHERE re.pregunta_examen_id = pe.pregunta_examen_id
-            AND re.intento_examen_id = p_intento_id
-        )
-    ) LOOP
-        -- Obtener el siguiente ID para respuestas
-        SELECT NVL(MAX(respuesta_estudiante_id), 0) + 1
-        INTO v_next_id
-        FROM Respuestas_Estudiantes;
-        
-        -- Insertar una respuesta vacía para poder calificarla con cero
-        INSERT INTO Respuestas_Estudiantes (
-            respuesta_estudiante_id,
-            intento_examen_id,
-            pregunta_examen_id,
-            es_correcta,
-            puntaje_obtenido
-        ) VALUES (
-            v_next_id,
-            p_intento_id,
-            pregunta_sin_respuesta.pregunta_examen_id,
-            'N',
-            0
-        );
-    END LOOP;
-    
-    -- Calcular total de puntos posibles (ahora incluye todas las preguntas)
-    SELECT SUM(pe.peso)
-    INTO v_puntos_posibles
-    FROM Preguntas_Examenes pe
-    WHERE pe.examen_id = v_examen_id;
-    
-    -- Calcular puntaje final (regla de tres)
-    IF v_puntos_posibles > 0 THEN
-        v_puntaje_final := (v_total_puntos / v_puntos_posibles) * 100;
-    ELSE
-        v_puntaje_final := 0;
-    END IF;
-    
-    -- Actualizar intento con el puntaje final
-    UPDATE Intentos_Examen
-    SET puntaje_total = v_puntaje_final,
-        fecha_fin = SYSTIMESTAMP,
-        tiempo_utilizado = EXTRACT(DAY FROM (SYSTIMESTAMP - fecha_inicio)) * 24 * 60 +
-                          EXTRACT(HOUR FROM (SYSTIMESTAMP - fecha_inicio)) * 60 +
-                          EXTRACT(MINUTE FROM (SYSTIMESTAMP - fecha_inicio))
-    WHERE intento_examen_id = p_intento_id;
-    
-    COMMIT;
-END;
-/
-
--- Función auxiliar para calificar preguntas compuestas
+-- Calcular puntaje para preguntas compuestas
 CREATE OR REPLACE FUNCTION fn_calcular_puntaje_compuesto(
     p_pregunta_id IN NUMBER,
     p_intento_id IN NUMBER
@@ -644,5 +474,57 @@ BEGIN
     
     -- Retornar la suma del puntaje de la pregunta padre y sus subpreguntas
     RETURN v_puntaje_padre + v_puntaje_subpreguntas;
+END;
+/
+
+-- Procedimiento para autenticar usuario (corregido para usar email)
+CREATE OR REPLACE FUNCTION autenticar_usuario(
+  p_email IN VARCHAR2,
+  p_password IN VARCHAR2
+) RETURN SYS_REFCURSOR IS
+  v_cursor SYS_REFCURSOR;
+  v_password VARCHAR2(100);
+  v_count NUMBER;
+BEGIN
+  -- Verificar si el usuario existe
+  SELECT COUNT(*) INTO v_count 
+  FROM USUARIOS 
+  WHERE EMAIL = p_email;
+  
+  IF v_count = 0 THEN
+    -- Usuario no existe, devolver cursor vacío
+    OPEN v_cursor FOR 
+      SELECT NULL, NULL, NULL, NULL, NULL, NULL FROM dual WHERE 1=0;
+    RETURN v_cursor;
+  END IF;
+  
+  -- Obtener contraseña almacenada
+  SELECT CONTRASENIA INTO v_password 
+  FROM USUARIOS 
+  WHERE EMAIL = p_email;
+  
+  -- Verificar si la contraseña coincide
+  IF v_password = p_password THEN
+    -- Credenciales válidas, devolver datos del usuario
+    OPEN v_cursor FOR 
+      SELECT 
+        u.USUARIO_ID, 
+        u.EMAIL as username, 
+        u.NOMBRE, 
+        u.APELLIDO, 
+        u.EMAIL,
+        CASE 
+          WHEN EXISTS (SELECT 1 FROM GRUPOS g WHERE g.PROFESOR_ID = u.USUARIO_ID) THEN 'professor'
+          ELSE 'student'
+        END as role
+      FROM USUARIOS u
+      WHERE u.EMAIL = p_email;
+  ELSE
+    -- Contraseña inválida, devolver cursor vacío
+    OPEN v_cursor FOR 
+      SELECT NULL, NULL, NULL, NULL, NULL, NULL FROM dual WHERE 1=0;
+  END IF;
+  
+  RETURN v_cursor;
 END;
 /

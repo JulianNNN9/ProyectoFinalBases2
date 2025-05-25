@@ -1,0 +1,448 @@
+
+/*==============================================================*/
+/* PROCEDURES                                                    */
+/*==============================================================*/
+
+-- Procedimiento para agregar preguntas equilibradas
+CREATE OR REPLACE PROCEDURE sp_agregar_preguntas_equilibradas(
+  p_examen_id IN NUMBER,
+  p_cantidad_preguntas IN NUMBER
+) AS
+  CURSOR c_temas IS
+    SELECT DISTINCT t.tema_id, t.nombre, COUNT(p.pregunta_id) AS num_preguntas
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    JOIN Unidades u ON c.curso_id = u.curso_id
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    JOIN Temas t ON ut.tema_id = t.tema_id
+    LEFT JOIN Preguntas p ON t.tema_id = p.tema_id AND p.es_publica = 'S'
+    WHERE e.examen_id = p_examen_id
+    GROUP BY t.tema_id, t.nombre;
+    
+  TYPE tema_rec IS RECORD (
+    tema_id NUMBER,
+    nombre VARCHAR2(50),
+    num_preguntas NUMBER
+  );
+  
+  TYPE tema_tab IS TABLE OF tema_rec INDEX BY PLS_INTEGER;
+  v_temas tema_tab;
+  
+  v_total_temas NUMBER := 0;
+  v_preguntas_por_tema NUMBER;
+  v_siguiente_orden NUMBER;
+  v_peso_por_pregunta NUMBER;
+  v_preguntas_disponibles NUMBER := 0;
+BEGIN
+  -- Obtener el siguiente orden
+  SELECT NVL(MAX(orden), 0) + 1
+  INTO v_siguiente_orden
+  FROM Preguntas_Examenes
+  WHERE examen_id = p_examen_id;
+  
+  -- Cargar temas en array
+  v_total_temas := 0;
+  FOR tema_rec IN c_temas LOOP
+    v_total_temas := v_total_temas + 1;
+    v_temas(v_total_temas).tema_id := tema_rec.tema_id;
+    v_temas(v_total_temas).nombre := tema_rec.nombre;
+    v_temas(v_total_temas).num_preguntas := tema_rec.num_preguntas;
+    -- Sumar preguntas disponibles
+    v_preguntas_disponibles := v_preguntas_disponibles + tema_rec.num_preguntas;
+  END LOOP;
+  
+  -- Si no hay temas, salir
+  IF v_total_temas = 0 THEN
+    RAISE_APPLICATION_ERROR(-20005, 'No hay temas disponibles para este examen');
+    RETURN;
+  END IF;
+  
+  -- Verificar si hay suficientes preguntas disponibles
+  IF v_preguntas_disponibles < p_cantidad_preguntas THEN
+    RAISE_APPLICATION_ERROR(-20008, 'No hay suficientes preguntas relacionadas con los temas del curso para este examen');
+    RETURN;
+  END IF;
+  
+  -- Calcular preguntas por tema
+  v_preguntas_por_tema := CEIL(p_cantidad_preguntas / v_total_temas);
+  
+  -- Calcular peso por pregunta (distribución equitativa)
+  v_peso_por_pregunta := 100 / p_cantidad_preguntas;
+  
+  -- Para cada tema, agregar preguntas aleatorias
+  FOR i IN 1..v_total_temas LOOP
+    -- Seleccionar preguntas del tema
+    IF v_temas(i).num_preguntas > 0 THEN
+      INSERT INTO Preguntas_Examenes (
+        pregunta_examen_id,
+        peso,
+        orden,
+        pregunta_id,
+        examen_id
+      )
+      SELECT 
+        SQ_PREGUNTA_EXAMEN_ID.NEXTVAL,
+        v_peso_por_pregunta,
+        v_siguiente_orden + ROWNUM - 1,
+        pregunta_id,
+        p_examen_id
+      FROM (
+        SELECT p.pregunta_id
+        FROM Preguntas p
+        WHERE p.tema_id = v_temas(i).tema_id
+        AND p.es_publica = 'S'
+        AND NOT EXISTS (
+          SELECT 1 FROM Preguntas_Examenes pe
+          WHERE pe.pregunta_id = p.pregunta_id
+          AND pe.examen_id = p_examen_id
+        )
+        ORDER BY DBMS_RANDOM.VALUE
+      )
+      WHERE ROWNUM <= v_preguntas_por_tema;
+      
+      -- Actualizar orden para el siguiente tema
+      v_siguiente_orden := v_siguiente_orden + v_preguntas_por_tema;
+    END IF;
+  END LOOP;
+  
+  COMMIT;
+END;
+/
+
+-- Procedimiento para llenar examen con preguntas aleatorias
+CREATE OR REPLACE PROCEDURE sp_llenar_examen_aleatorio(
+    p_examen_id IN NUMBER,
+    p_cantidad_preguntas IN NUMBER
+) AS
+    v_preguntas_disponibles NUMBER;
+    v_siguiente_id NUMBER;
+BEGIN
+    -- Verificar si hay suficientes preguntas disponibles de los temas del curso
+    SELECT COUNT(DISTINCT p.pregunta_id)
+    INTO v_preguntas_disponibles
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    JOIN Unidades u ON c.curso_id = u.curso_id
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    JOIN Temas t ON ut.tema_id = t.tema_id
+    JOIN Preguntas p ON t.tema_id = p.tema_id
+    WHERE e.examen_id = p_examen_id
+    AND p.es_publica = 'S'
+    AND p.pregunta_id NOT IN (
+        SELECT pregunta_id FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id
+    );
+    
+    IF v_preguntas_disponibles < p_cantidad_preguntas THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No hay suficientes preguntas relacionadas con los temas del curso para este examen');
+        RETURN;
+    END IF;
+    
+    -- Obtener el siguiente ID para pregunta_examen
+    SELECT NVL(MAX(pregunta_examen_id), 0) + 1
+    INTO v_siguiente_id
+    FROM Preguntas_Examenes;
+    
+    -- Insertar preguntas aleatorias pero solo de los temas relacionados con el curso
+    INSERT INTO Preguntas_Examenes (
+        pregunta_examen_id,
+        peso,
+        orden,
+        pregunta_id,
+        examen_id
+    )
+    SELECT 
+        v_siguiente_id + ROWNUM - 1,
+        100 / p_cantidad_preguntas,  -- Distribuir peso equitativamente
+        ROWNUM,
+        pregunta_id,
+        p_examen_id
+    FROM (
+        SELECT DISTINCT p.pregunta_id
+        FROM Examenes e
+        JOIN Grupos g ON e.grupo_id = g.grupo_id
+        JOIN Cursos c ON g.curso_id = c.curso_id
+        JOIN Unidades u ON c.curso_id = u.curso_id
+        JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+        JOIN Temas t ON ut.tema_id = t.tema_id
+        JOIN Preguntas p ON t.tema_id = p.tema_id
+        WHERE e.examen_id = p_examen_id
+        AND p.es_publica = 'S'
+        AND p.pregunta_id NOT IN (
+            SELECT pregunta_id FROM Preguntas_Examenes
+            WHERE examen_id = p_examen_id
+        )
+        ORDER BY DBMS_RANDOM.VALUE
+    )
+    WHERE ROWNUM <= p_cantidad_preguntas;
+    
+    COMMIT;
+END;
+/
+
+-- Procedimiento para actualizar preguntas compuestas
+CREATE OR REPLACE PROCEDURE sp_actualizar_preguntas_compuestas(
+    p_pregunta_principal_id IN NUMBER,
+    p_cantidad_subpreguntas IN NUMBER
+) AS
+BEGIN
+    IF p_cantidad_subpreguntas > 0 THEN
+        -- Seleccionar subpreguntas del mismo tema
+        UPDATE Preguntas
+        SET pregunta_padre_id = p_pregunta_principal_id
+        WHERE tema_id = (SELECT tema_id FROM Preguntas WHERE pregunta_id = p_pregunta_principal_id)
+        AND pregunta_id <> p_pregunta_principal_id
+        AND pregunta_padre_id IS NULL
+        AND ROWNUM <= p_cantidad_subpreguntas;
+        
+        COMMIT;
+    END IF;
+END;
+/
+
+-- Procedimiento para validar y completar examen
+CREATE OR REPLACE PROCEDURE sp_validar_completar_examen(
+    p_examen_id IN NUMBER
+) AS
+    v_total_preguntas NUMBER;
+    v_cantidad_esperada NUMBER;
+    v_suma_pesos NUMBER;
+    v_faltantes NUMBER;
+BEGIN
+    -- Obtener cantidad esperada de preguntas
+    SELECT NVL(cantidad_preguntas_mostrar, 0)
+    INTO v_cantidad_esperada
+    FROM Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Si no hay una cantidad definida, no es necesario completar
+    IF v_cantidad_esperada = 0 THEN
+        RETURN;
+    END IF;
+    
+    -- Contar preguntas actuales y sumar pesos
+    SELECT COUNT(*), NVL(SUM(peso), 0)
+    INTO v_total_preguntas, v_suma_pesos
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Verificar si faltan preguntas
+    IF v_total_preguntas < v_cantidad_esperada THEN
+        v_faltantes := v_cantidad_esperada - v_total_preguntas;
+        
+        -- Completar con preguntas aleatorias
+        sp_llenar_examen_aleatorio(p_examen_id, v_faltantes);
+        
+        -- Actualizar conteo después de agregar preguntas
+        SELECT COUNT(*)
+        INTO v_total_preguntas
+        FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id;
+    END IF;
+    
+    -- Validar y ajustar pesos para que sumen 100%
+    IF v_suma_pesos != 100 AND v_total_preguntas > 0 THEN
+        -- Distribuir pesos equitativamente
+        UPDATE Preguntas_Examenes
+        SET peso = 100 / v_total_preguntas
+        WHERE examen_id = p_examen_id;
+    END IF;
+    
+    COMMIT;
+    
+    -- Verificación final
+    SELECT COUNT(*), SUM(peso)
+    INTO v_total_preguntas, v_suma_pesos
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Registrar resultado en log
+    DBMS_OUTPUT.PUT_LINE('Examen ' || p_examen_id || ' validado: ' || 
+                         v_total_preguntas || ' preguntas, ' || 
+                         'peso total: ' || v_suma_pesos || '%');
+END;
+/
+
+-- Procedimiento para rebalancear pesos de preguntas
+CREATE OR REPLACE PROCEDURE sp_rebalancear_pesos_examen(
+    p_examen_id IN NUMBER
+) AS
+    v_total_preguntas NUMBER;
+BEGIN
+    -- Contar preguntas en el examen
+    SELECT COUNT(*)
+    INTO v_total_preguntas
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Si hay preguntas, distribuir pesos equitativamente
+    IF v_total_preguntas > 0 THEN
+        UPDATE Preguntas_Examenes
+        SET peso = 100 / v_total_preguntas
+        WHERE examen_id = p_examen_id;
+        
+        COMMIT;
+    END IF;
+END;
+/
+
+-- Verificar tiempo de entrega
+CREATE OR REPLACE PROCEDURE sp_verificar_tiempo_entrega(
+    p_intento_id IN NUMBER,
+    p_resultado OUT VARCHAR2
+) AS
+    v_fecha_inicio TIMESTAMP;
+    v_fecha_fin TIMESTAMP;
+    v_tiempo_limite NUMBER;
+    v_examen_id NUMBER;
+BEGIN
+    -- Obtener datos del intento
+    SELECT ie.fecha_inicio, SYSTIMESTAMP, e.tiempo_limite, ie.examen_id
+    INTO v_fecha_inicio, v_fecha_fin, v_tiempo_limite, v_examen_id
+    FROM Intentos_Examen ie
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    WHERE ie.intento_examen_id = p_intento_id;
+    
+    -- Calcular tiempo transcurrido en minutos
+    IF (EXTRACT(DAY FROM (v_fecha_fin - v_fecha_inicio)) * 24 * 60 +
+        EXTRACT(HOUR FROM (v_fecha_fin - v_fecha_inicio)) * 60 +
+        EXTRACT(MINUTE FROM (v_fecha_fin - v_fecha_inicio))) > v_tiempo_limite THEN
+        
+        p_resultado := 'ERROR: Tiempo de entrega excedido';
+    ELSE
+        p_resultado := 'EXITO: Entrega dentro del tiempo permitido';
+    END IF;
+END;
+/
+
+-- Calificar examen completo
+CREATE OR REPLACE PROCEDURE sp_calificar_examen_completo(
+    p_intento_id IN NUMBER
+) AS
+    v_total_puntos NUMBER := 0;
+    v_puntos_posibles NUMBER := 0;
+    v_puntaje_final NUMBER;
+    v_examen_id NUMBER;
+    v_total_preguntas NUMBER := 0;
+    v_preguntas_respondidas NUMBER := 0;
+    v_next_id NUMBER;
+    v_es_subpregunta BOOLEAN;
+    v_pregunta_padre_id NUMBER;
+BEGIN
+    -- Obtener el ID del examen
+    SELECT examen_id 
+    INTO v_examen_id
+    FROM Intentos_Examen
+    WHERE intento_examen_id = p_intento_id;
+    
+    -- Obtener número total de preguntas en el examen
+    SELECT COUNT(*)
+    INTO v_total_preguntas
+    FROM Preguntas_Examenes
+    WHERE examen_id = v_examen_id;
+    
+    -- Obtener número de preguntas respondidas
+    SELECT COUNT(DISTINCT pe.pregunta_examen_id)
+    INTO v_preguntas_respondidas
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.intento_examen_id = p_intento_id;
+    
+    -- Calificar cada respuesta según el tipo de pregunta
+    FOR respuesta IN (
+        SELECT 
+            re.respuesta_estudiante_id,
+            p.tipo_pregunta_id,
+            p.pregunta_id,
+            p.pregunta_padre_id,
+            pe.pregunta_examen_id
+        FROM Respuestas_Estudiantes re
+        JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+        WHERE re.intento_examen_id = p_intento_id
+        ORDER BY pe.orden -- Ordenar para procesar preguntas en el orden correcto
+    ) LOOP
+        -- Verificar si es una subpregunta
+        v_es_subpregunta := (respuesta.pregunta_padre_id IS NOT NULL);
+        
+        -- Calificar según el tipo de pregunta (independientemente si es subpregunta)
+        IF respuesta.tipo_pregunta_id = 1 THEN -- Opción múltiple
+            v_total_puntos := v_total_puntos + fn_calificar_opcion_multiple(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 2 THEN -- Opción única
+            v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 3 THEN -- Verdadero/Falso
+            v_total_puntos := v_total_puntos + fn_calificar_verdadero_falso(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 4 THEN -- Ordenamiento
+            v_total_puntos := v_total_puntos + fn_calificar_ordenamiento(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 5 THEN -- Emparejamiento
+            v_total_puntos := v_total_puntos + fn_calificar_emparejamiento(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 6 THEN -- Completar
+            v_total_puntos := v_total_puntos + fn_calificar_completar(respuesta.respuesta_estudiante_id);
+        END IF;
+    END LOOP;
+    
+    -- Insertar respuestas en blanco para preguntas no contestadas
+    FOR pregunta_sin_respuesta IN (
+        SELECT 
+            pe.pregunta_examen_id, 
+            pe.peso, 
+            p.tipo_pregunta_id,
+            p.pregunta_padre_id
+        FROM Preguntas_Examenes pe
+        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+        WHERE pe.examen_id = v_examen_id
+        AND NOT EXISTS (
+            SELECT 1
+            FROM Respuestas_Estudiantes re
+            WHERE re.pregunta_examen_id = pe.pregunta_examen_id
+            AND re.intento_examen_id = p_intento_id
+        )
+    ) LOOP
+        -- Obtener el siguiente ID para respuestas
+        SELECT NVL(MAX(respuesta_estudiante_id), 0) + 1
+        INTO v_next_id
+        FROM Respuestas_Estudiantes;
+        
+        -- Insertar una respuesta vacía para poder calificarla con cero
+        INSERT INTO Respuestas_Estudiantes (
+            respuesta_estudiante_id,
+            intento_examen_id,
+            pregunta_examen_id,
+            es_correcta,
+            puntaje_obtenido
+        ) VALUES (
+            v_next_id,
+            p_intento_id,
+            pregunta_sin_respuesta.pregunta_examen_id,
+            'N',
+            0
+        );
+    END LOOP;
+    
+    -- Calcular total de puntos posibles (ahora incluye todas las preguntas)
+    SELECT SUM(pe.peso)
+    INTO v_puntos_posibles
+    FROM Preguntas_Examenes pe
+    WHERE pe.examen_id = v_examen_id;
+    
+    -- Calcular puntaje final (regla de tres)
+    IF v_puntos_posibles > 0 THEN
+        v_puntaje_final := (v_total_puntos / v_puntos_posibles) * 100;
+    ELSE
+        v_puntaje_final := 0;
+    END IF;
+    
+    -- Actualizar intento con el puntaje final
+    UPDATE Intentos_Examen
+    SET puntaje_total = v_puntaje_final,
+        fecha_fin = SYSTIMESTAMP,
+        tiempo_utilizado = EXTRACT(DAY FROM (SYSTIMESTAMP - fecha_inicio)) * 24 * 60 +
+                          EXTRACT(HOUR FROM (SYSTIMESTAMP - fecha_inicio)) * 60 +
+                          EXTRACT(MINUTE FROM (SYSTIMESTAMP - fecha_inicio))
+    WHERE intento_examen_id = p_intento_id;
+    
+    COMMIT;
+END;
+/
