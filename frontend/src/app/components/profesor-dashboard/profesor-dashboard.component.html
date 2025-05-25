@@ -1,0 +1,139 @@
+<div class="container-fluid">
+  <!-- Header con información del profesor -->
+  <div class="bg-primary text-white py-4 px-3 mb-4">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col">
+          <h2>{{profesor.nombre}}</h2>
+          <p class="mb-0">{{profesor.departamento}}</p>
+          <small>{{profesor.email}}</small>
+        </div>
+        <div class="col-auto">
+          <div class="btn-group">
+            <button class="btn btn-light" routerLink="/crear-examen">
+              <i class="bi bi-plus-circle me-2"></i>Crear Examen
+            </button>
+            <button class="btn btn-light" routerLink="/reportes">
+              <i class="bi bi-graph-up me-2"></i>Reportes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Tarjetas de estadísticas -->
+    <div class="row mb-4">
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticasGenerales.examenesActivos}}</h3>
+            <p class="card-text">Exámenes Activos</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticasGenerales.examenesFinalizados}}</h3>
+            <p class="card-text">Exámenes Finalizados</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticasGenerales.estudiantesTotales}}</h3>
+            <p class="card-text">Estudiantes Totales</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticasGenerales.promedioGeneral}}%</h3>
+            <p class="card-text">Promedio General</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lista de exámenes -->
+    <div class="card">
+      <div class="card-header">
+        <h4 class="mb-0">Mis Exámenes</h4>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Materia</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Progreso</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let examen of examenes">
+                <td>{{examen.nombre}}</td>
+                <td>{{examen.materia}}</td>
+                <td>{{examen.fecha}}</td>
+                <td>
+                  <span class="badge" [ngClass]="{
+                    'bg-secondary': examen.estado === 'Borrador',
+                    'bg-primary': examen.estado === 'Publicado',
+                    'bg-warning': examen.estado === 'En Curso',
+                    'bg-success': examen.estado === 'Finalizado'
+                  }">{{examen.estado}}</span>
+                </td>
+                <td>
+                  <div *ngIf="examen.calificados && examen.totalEstudiantes">
+                    <div class="progress">
+                      <div class="progress-bar" role="progressbar"
+                           [style.width.%]="(examen.calificados/examen.totalEstudiantes)*100">
+                        {{examen.calificados}}/{{examen.totalEstudiantes}}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="btn-group">
+                    <button class="btn btn-outline-primary" 
+                            [routerLink]="['/editar-examen', examen.id]"
+                            title="Editar examen">
+                      <i class="bi bi-pencil-fill"></i>
+                      <span class="ms-1">Editar</span>
+                    </button>
+                    <button class="btn btn-outline-info" 
+                            [routerLink]="['/ver-resultados', examen.id]"
+                            title="Ver resultados">
+                      <i class="bi bi-bar-chart-fill"></i>
+                      <span class="ms-1">Resultados</span>
+                    </button>
+                    <button class="btn btn-outline-success" 
+                            [disabled]="examen.estado !== 'Borrador'"
+                            (click)="publicarExamen(examen.id)"
+                            title="Publicar examen">
+                      <i class="bi bi-send-fill"></i>
+                      <span class="ms-1">Publicar</span>
+                    </button>
+                    <button class="btn btn-outline-danger" 
+                            (click)="eliminarExamen(examen.id)"
+                            title="Eliminar examen">
+                      <i class="bi bi-trash-fill"></i>
+                      <span class="ms-1">Eliminar</span>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

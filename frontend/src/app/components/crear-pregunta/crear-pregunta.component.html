@@ -1,1 +1,107 @@
-<p>crear-pregunta works!</p>
+<div class="card">
+  <div class="card-header">
+    <h4>Crear Nueva Pregunta</h4>
+  </div>
+  
+  <div class="card-body">
+    <form [formGroup]="preguntaForm" (ngSubmit)="onSubmit()">
+      <!-- Tipo de pregunta -->
+      <div class="mb-3">
+        <label for="tipo" class="form-label">Tipo de Pregunta</label>
+        <select class="form-select" id="tipo" formControlName="tipo">
+          <option value="">Seleccione un tipo</option>
+          <option *ngFor="let tipo of tiposPregunta" [value]="tipo">
+            {{tipo}}
+          </option>
+        </select>
+        <div class="invalid-feedback" *ngIf="preguntaForm.get('tipo')?.errors?.['required'] && 
+                                           preguntaForm.get('tipo')?.touched">
+          Debe seleccionar un tipo de pregunta
+        </div>
+      </div>
+
+      <!-- Texto de la pregunta -->
+      <div class="mb-3">
+        <label for="texto" class="form-label">Texto de la Pregunta</label>
+        <textarea class="form-control" id="texto" formControlName="texto" rows="3"></textarea>
+        <div class="invalid-feedback" *ngIf="preguntaForm.get('texto')?.errors?.['required'] && 
+                                           preguntaForm.get('texto')?.touched">
+          El texto de la pregunta es requerido
+        </div>
+      </div>
+
+      <!-- Porcentaje -->
+      <div class="mb-3">
+        <label for="porcentaje" class="form-label">Porcentaje de la Nota (%)</label>
+        <input type="number" class="form-control" id="porcentaje" 
+               formControlName="porcentaje" min="1" max="100">
+        <div class="invalid-feedback" *ngIf="preguntaForm.get('porcentaje')?.errors && 
+                                           preguntaForm.get('porcentaje')?.touched">
+          El porcentaje debe estar entre 1 y 100
+        </div>
+      </div>
+
+      <!-- Tiempo máximo -->
+      <div class="mb-3">
+        <label for="tiempoMaximo" class="form-label">Tiempo Máximo (minutos, opcional)</label>
+        <input type="number" class="form-control" id="tiempoMaximo" 
+               formControlName="tiempoMaximo" min="1">
+      </div>
+
+      <!-- Subpreguntas toggle -->
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="tieneSubpreguntas" 
+               formControlName="tieneSubpreguntas">
+        <label class="form-check-label" for="tieneSubpreguntas">
+          ¿Incluir subpreguntas?
+        </label>
+      </div>
+
+      <!-- Componentes específicos según tipo -->
+      <div class="mt-4" [ngSwitch]="tipoSeleccionado">
+        <app-pregunta-seleccion-multiple
+          *ngSwitchCase="'Selección múltiple - única respuesta'"
+          [esRespuestaUnica]="true"
+          (configuracionCreada)="onConfiguracionEspecifica($event)">
+        </app-pregunta-seleccion-multiple>
+
+        <app-pregunta-seleccion-multiple
+          *ngSwitchCase="'Selección múltiple - múltiples respuestas'"
+          [esRespuestaUnica]="false"
+          (configuracionCreada)="onConfiguracionEspecifica($event)">
+        </app-pregunta-seleccion-multiple>
+
+        <app-pregunta-verdadero-falso
+          *ngSwitchCase="'Verdadero/Falso'"
+          (configuracionCreada)="onConfiguracionEspecifica($event)">
+        </app-pregunta-verdadero-falso>
+
+        <app-pregunta-emparejar
+          *ngSwitchCase="'Emparejar conceptos'"
+          (configuracionCreada)="onConfiguracionEspecifica($event)">
+        </app-pregunta-emparejar>
+
+        <app-pregunta-ordenar
+          *ngSwitchCase="'Ordenar conceptos'"
+          (configuracionCreada)="onConfiguracionEspecifica($event)">
+        </app-pregunta-ordenar>
+      </div>
+
+      <!-- Componente de Subpreguntas -->
+      <div *ngIf="mostrarSubpreguntas" class="mt-4 mb-3">
+        <app-subpreguntas
+          [porcentajeDisponible]="porcentajeDisponible"
+          (subpreguntasCreadas)="onSubpreguntasCreadas($event)">
+        </app-subpreguntas>
+      </div>
+
+      <!-- Botones -->
+      <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+        <button type="submit" class="btn btn-primary" 
+                [disabled]="!verificarFormularioValido()">
+          Crear Pregunta
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

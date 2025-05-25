@@ -3,11 +3,14 @@
   border-color: #dc3545;
 }
 
-.form-control.ng-valid.ng-touched,
-.form-select.ng-valid.ng-touched {
-  border-color: #198754;
-}
-
 .invalid-feedback {
   display: block;
+}
+
+.border {
+  border-color: #dee2e6;
+}
+
+.border:hover {
+  border-color: #adb5bd;
 }

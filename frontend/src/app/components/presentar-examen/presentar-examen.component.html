@@ -1,1 +1,110 @@
-<p>presentar-examen works!</p>
+<div class="container-fluid">
+  <!-- Barra superior fija -->
+  <div class="exam-header">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col">
+          <h4 class="mb-0">{{examen.titulo}}</h4>
+        </div>
+        <div class="col-auto">
+          <div class="tiempo-restante">
+            <i class="bi bi-clock me-2"></i>
+            {{tiempoFormateado}}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-5 pt-4">
+    <!-- Barra de progreso -->
+    <div class="progress mb-4">
+      <div class="progress-bar" 
+           role="progressbar" 
+           [style.width.%]="getPorcentajeCompletado()"
+           [attr.aria-valuenow]="getPorcentajeCompletado()"
+           aria-valuemin="0" 
+           aria-valuemax="100">
+        {{getPorcentajeCompletado() | number:'1.0-0'}}% Completado
+      </div>
+    </div>
+
+    <!-- Lista de preguntas -->
+    <div class="preguntas-container">
+      <div *ngFor="let pregunta of examen.preguntas; let i = index" 
+           class="card mb-4 pregunta-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Pregunta {{i + 1}}</h5>
+          <span class="badge bg-primary">{{pregunta.porcentaje}}%</span>
+        </div>
+        
+        <div class="card-body">
+          <p class="pregunta-texto">{{pregunta.texto}}</p>
+
+          <!-- Selección múltiple - única respuesta -->
+          <div *ngIf="pregunta.tipo === 'Selección múltiple - única respuesta'"
+               class="opciones-container">
+            <div *ngFor="let opcion of pregunta.opciones" class="form-check">
+              <input class="form-check-input" 
+                     type="radio"
+                     [name]="'pregunta' + pregunta.id"
+                     [id]="'opcion' + opcion.id"
+                     [value]="opcion.id"
+                     [(ngModel)]="pregunta.respuestaSeleccionada">
+              <label class="form-check-label" [for]="'opcion' + opcion.id">
+                {{opcion.texto}}
+              </label>
+            </div>
+          </div>
+
+          <!-- Selección múltiple - múltiples respuestas -->
+          <div *ngIf="pregunta.tipo === 'Selección múltiple - múltiples respuestas'"
+               class="opciones-container">
+            <div *ngFor="let opcion of pregunta.opciones" class="form-check">
+              <input class="form-check-input" 
+                     type="checkbox"
+                     [id]="'opcion' + opcion.id"
+                     [(ngModel)]="opcion.seleccionada"
+                     (change)="guardarRespuestaMultiple(pregunta, opcion)">
+              <label class="form-check-label" [for]="'opcion' + opcion.id">
+                {{opcion.texto}}
+              </label>
+            </div>
+          </div>
+
+          <!-- Verdadero/Falso -->
+          <div *ngIf="pregunta.tipo === 'Verdadero/Falso'"
+               class="btn-group w-100" role="group">
+            <input type="radio" 
+                   class="btn-check" 
+                   [name]="'pregunta' + pregunta.id"
+                   [id]="'verdadero' + pregunta.id"
+                   [value]="true"
+                   [(ngModel)]="pregunta.respuestaSeleccionada">
+            <label class="btn btn-outline-success" 
+                   [for]="'verdadero' + pregunta.id">Verdadero</label>
+
+            <input type="radio" 
+                   class="btn-check" 
+                   [name]="'pregunta' + pregunta.id"
+                   [id]="'falso' + pregunta.id"
+                   [value]="false"
+                   [(ngModel)]="pregunta.respuestaSeleccionada">
+            <label class="btn btn-outline-danger" 
+                   [for]="'falso' + pregunta.id">Falso</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón de entrega -->
+    <div class="entregar-container">
+      <button class="btn btn-primary btn-lg" 
+              (click)="entregarExamen()"
+              [disabled]="getPorcentajeCompletado() < 100">
+        <i class="bi bi-check2-circle me-2"></i>
+        Entregar Examen
+      </button>
+    </div>
+  </div>
+</div>

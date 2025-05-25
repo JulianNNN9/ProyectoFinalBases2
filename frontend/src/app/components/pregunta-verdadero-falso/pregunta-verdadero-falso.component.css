@@ -1,0 +1,20 @@
+.btn-group {
+  gap: 10px;
+}
+
+.btn-group label.btn {
+  border-radius: 5px;
+  flex: 1;
+}
+
+.form-control.ng-invalid.ng-touched {
+  border-color: #dc3545;
+}
+
+.form-control.ng-valid.ng-touched {
+  border-color: #198754;
+}
+
+.invalid-feedback {
+  display: block;
+}

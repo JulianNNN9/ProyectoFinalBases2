@@ -1,0 +1,20 @@
+.table td {
+  vertical-align: middle;
+}
+
+.btn-group .btn {
+  padding: 0.25rem 0.5rem;
+}
+
+.badge {
+  font-size: 0.875rem;
+  padding: 0.5em 0.75em;
+}
+
+.table tr:hover {
+  background-color: rgba(0,0,0,0.02);
+}
+
+.btn-group .btn i {
+  font-size: 1rem;
+}

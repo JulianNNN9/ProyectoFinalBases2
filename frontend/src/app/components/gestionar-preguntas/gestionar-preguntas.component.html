@@ -1,0 +1,88 @@
+<div class="container mt-4">
+  <!-- Header con título y botón de crear -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Gestión de Preguntas</h2>
+    <a routerLink="/crear-pregunta" class="btn btn-primary">
+      <i class="bi bi-plus-circle me-2"></i>Nueva Pregunta
+    </a>
+  </div>
+
+  <!-- Filtros -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6">
+          <div class="mb-3">
+            <label class="form-label">Filtrar por Categoría</label>
+            <select class="form-select" [(ngModel)]="filtroCategoria">
+              <option value="">Todas las categorías</option>
+              <option *ngFor="let cat of categorias" [value]="cat">{{cat}}</option>
+            </select>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="mb-3">
+            <label class="form-label">Buscar Pregunta</label>
+            <input type="text" 
+                   class="form-control" 
+                   [(ngModel)]="filtroBusqueda" 
+                   placeholder="Buscar por texto...">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de preguntas -->
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th>Pregunta</th>
+              <th>Tipo</th>
+              <th>Categoría</th>
+              <th>Usos</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let pregunta of filtrarPreguntas()">
+              <td>{{pregunta.texto}}</td>
+              <td>{{pregunta.tipo}}</td>
+              <td>{{pregunta.categoria}}</td>
+              <td>
+                <button class="btn btn-link" 
+                        (click)="verHistorialUsos(pregunta)"
+                        [disabled]="pregunta.vecesUsada === 0">
+                  {{pregunta.vecesUsada}} usos
+                </button>
+              </td>
+              <td>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-primary" 
+                          (click)="editarPregunta(pregunta)"
+                          title="Modificar el contenido de la pregunta">
+                    <i class="bi bi-pencil-square me-1"></i>
+                    Editar
+                  </button>
+
+                  <button class="btn btn-danger" 
+                          (click)="eliminarPregunta(pregunta)"
+                          [disabled]="pregunta.vecesUsada > 0"
+                          [title]="pregunta.vecesUsada > 0 ? 
+                                  'No se puede eliminar una pregunta usada en exámenes' : 
+                                  'Eliminar esta pregunta'">
+                    <i class="bi bi-trash me-1"></i>
+                    Eliminar
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

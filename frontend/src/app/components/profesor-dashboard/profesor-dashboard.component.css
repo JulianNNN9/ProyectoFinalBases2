@@ -1,0 +1,35 @@
+ workspace\Angular\ProyectoFinalBases2\frontend\src\app\views\profesor-dashboard\profesor-dashboard.component.css
+.card {
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+.progress {
+  height: 20px;
+  border-radius: 10px;
+}
+
+.btn-group .btn {
+  padding: 0.25rem 0.5rem;
+}
+
+.table td {
+  vertical-align: middle;
+}
+
+.badge {
+  padding: 0.5em 1em;
+}
+
+.bg-primary.text-white {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card-title {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #0d6efd;
+}

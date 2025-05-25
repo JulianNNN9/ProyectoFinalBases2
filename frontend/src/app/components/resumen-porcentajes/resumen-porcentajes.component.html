@@ -1,0 +1,52 @@
+<div class="card">
+  <div class="card-header">
+    <h5 class="mb-0">Resumen de Porcentajes</h5>
+  </div>
+
+  <div class="card-body">
+    <!-- Barra de progreso -->
+    <div class="progress mb-3" style="height: 20px;">
+      <div class="progress-bar" 
+           [ngClass]="getProgressBarClass()"
+           [style.width.%]="porcentajeTotal"
+           role="progressbar"
+           [attr.aria-valuenow]="porcentajeTotal"
+           aria-valuemin="0"
+           [attr.aria-valuemax]="totalEsperado">
+        {{porcentajeTotal}}%
+      </div>
+    </div>
+
+    <!-- Lista de items -->
+    <div class="list-group">
+      <div *ngFor="let item of items" 
+           class="list-group-item d-flex justify-content-between align-items-center"
+           [ngClass]="getEstadoClase(item)">
+        <div>
+          <h6 class="mb-0">{{item.nombre}}</h6>
+          <small class="text-muted" *ngIf="item.tipo">{{item.tipo}}</small>
+        </div>
+        <span class="badge bg-primary rounded-pill">{{item.porcentaje}}%</span>
+      </div>
+    </div>
+
+    <!-- Mensaje de estado -->
+    <div class="alert mt-3" 
+         [ngClass]="{'alert-danger': excedePorcentaje,
+                    'alert-success': porcentajeTotal === totalEsperado,
+                    'alert-warning': porcentajeTotal < totalEsperado && !excedePorcentaje}">
+      <ng-container *ngIf="excedePorcentaje">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        El total excede el {{totalEsperado}}% permitido
+      </ng-container>
+      <ng-container *ngIf="!excedePorcentaje && porcentajeTotal < totalEsperado">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        Falta asignar {{porcentajeFaltante}}%
+      </ng-container>
+      <ng-container *ngIf="porcentajeTotal === totalEsperado">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        Porcentajes correctamente distribuidos
+      </ng-container>
+    </div>
+  </div>
+</div>

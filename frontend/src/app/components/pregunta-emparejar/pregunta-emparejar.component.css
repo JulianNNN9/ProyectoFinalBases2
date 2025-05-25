@@ -1,0 +1,32 @@
+.par-container {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.par-container:hover {
+  background-color: #e9ecef;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-control.ng-invalid.ng-touched {
+  border-color: #dc3545;
+}
+
+.form-control.ng-valid.ng-touched {
+  border-color: #198754;
+}
+
+.invalid-feedback {
+  display: block;
+}
+
+.bi-arrow-right {
+  color: #6c757d;
+  font-size: 1.2rem;
+}
+
+button.btn-sm {
+  padding: 0.25rem 0.5rem;
+}

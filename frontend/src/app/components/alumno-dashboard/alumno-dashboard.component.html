@@ -1,0 +1,142 @@
+<div class="container-fluid">
+  <!-- Header con información del estudiante -->
+  <div class="bg-primary text-white py-4 px-3 mb-4">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col">
+          <h2>{{estudiante.nombre}}</h2>
+          <p class="mb-0">{{estudiante.programa}} - {{estudiante.semestre}}° semestre</p>
+          <small>Código: {{estudiante.codigo}} | {{estudiante.email}}</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Estadísticas del estudiante -->
+    <div class="row mb-4">
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticas.promedioGeneral}}%</h3>
+            <p class="card-text">Promedio General</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticas.examenesCompletados}}</h3>
+            <p class="card-text">Exámenes Completados</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticas.examenesPendientes}}</h3>
+            <p class="card-text">Exámenes Pendientes</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="card-title">{{estadisticas.mejorNota}}%</h3>
+            <p class="card-text">Mejor Nota</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exámenes Pendientes -->
+    <div class="card mb-4">
+      <div class="card-header bg-warning text-dark">
+        <h4 class="mb-0">Exámenes Pendientes</h4>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Examen</th>
+                <th>Materia</th>
+                <th>Profesor</th>
+                <th>Fecha</th>
+                <th>Duración</th>
+                <th>Estado</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let examen of examenesPendientes">
+                <td>{{examen.nombre}}</td>
+                <td>{{examen.materia}}</td>
+                <td>{{examen.profesor}}</td>
+                <td>{{examen.fecha}}</td>
+                <td>{{examen.duracion}} min</td>
+                <td>
+                  <span class="badge" [ngClass]="{
+                    'bg-warning': examen.estado === 'Programado',
+                    'bg-success': examen.estado === 'Disponible',
+                    'bg-danger': examen.estado === 'Expirado'
+                  }">{{examen.estado}}</span>
+                </td>
+                <td>
+                  <button class="btn btn-primary btn-sm" 
+                          [routerLink]="['/presentar-examen', examen.id]"
+                          [disabled]="examen.estado !== 'Disponible'">
+                    Presentar Examen
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Historial de Exámenes -->
+    <div class="card">
+      <div class="card-header bg-success text-white">
+        <h4 class="mb-0">Historial de Exámenes</h4>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Examen</th>
+                <th>Materia</th>
+                <th>Fecha</th>
+                <th>Nota</th>
+                <th>Tiempo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let examen of examenesCompletados">
+                <td>{{examen.nombre}}</td>
+                <td>{{examen.materia}}</td>
+                <td>{{examen.fechaPresentacion}}</td>
+                <td>
+                  <span class="badge" [ngClass]="{
+                    'bg-success': examen.nota >= 70,
+                    'bg-danger': examen.nota < 70
+                  }">{{examen.nota}}%</span>
+                </td>
+                <td>{{examen.tiempoUtilizado}} min</td>
+                <td>
+                  <button class="btn btn-info btn-sm" 
+                          [routerLink]="['/ver-examen', examen.id]">
+                    Ver Detalles
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

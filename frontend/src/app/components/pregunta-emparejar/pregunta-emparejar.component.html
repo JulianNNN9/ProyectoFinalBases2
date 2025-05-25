@@ -1,0 +1,63 @@
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Emparejar Conceptos</h5>
+    <button type="button" class="btn btn-secondary btn-sm" (click)="agregarPar()">
+      Agregar Par
+    </button>
+  </div>
+
+  <div class="card-body">
+    <form [formGroup]="emparejamientoForm">
+      <div formArrayName="pares">
+        <div *ngFor="let par of pares.controls; let i=index" 
+             [formGroupName]="i"
+             class="par-container mb-3">
+          <div class="row align-items-center">
+            <div class="col-5">
+              <input type="text" 
+                     class="form-control" 
+                     formControlName="concepto"
+                     placeholder="Concepto">
+              <div class="invalid-feedback" 
+                   *ngIf="par.get('concepto')?.errors?.['required'] && 
+                         par.get('concepto')?.touched">
+                El concepto es requerido
+              </div>
+            </div>
+
+            <div class="col-1 text-center">
+              <i class="bi bi-arrow-right"></i>
+            </div>
+
+            <div class="col-5">
+              <input type="text" 
+                     class="form-control" 
+                     formControlName="definicion"
+                     placeholder="Definición">
+              <div class="invalid-feedback" 
+                   *ngIf="par.get('definicion')?.errors?.['required'] && 
+                         par.get('definicion')?.touched">
+                La definición es requerida
+              </div>
+            </div>
+
+            <div class="col-1">
+              <button type="button" 
+                      class="btn btn-outline-danger btn-sm"
+                      (click)="eliminarPar(i)"
+                      [disabled]="pares.length <= 2">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <div class="alert alert-info mt-3" role="alert">
+      <small>
+        Debe agregar al menos dos pares de conceptos y sus definiciones correspondientes.
+      </small>
+    </div>
+  </div>
+</div>

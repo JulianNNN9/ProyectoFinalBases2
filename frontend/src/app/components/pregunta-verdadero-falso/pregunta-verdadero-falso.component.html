@@ -1,0 +1,51 @@
+<div class="card">
+  <div class="card-header">
+    <h5 class="mb-0">Configuración Verdadero/Falso</h5>
+  </div>
+
+  <div class="card-body">
+    <form [formGroup]="vfForm">
+      <!-- Selección de respuesta correcta -->
+      <div class="mb-4">
+        <label class="form-label">Respuesta Correcta</label>
+        <div class="btn-group w-100" role="group">
+          <input type="radio" 
+                 class="btn-check" 
+                 id="verdadero" 
+                 value="verdadero"
+                 formControlName="respuestaCorrecta">
+          <label class="btn btn-outline-success" for="verdadero">Verdadero</label>
+
+          <input type="radio" 
+                 class="btn-check" 
+                 id="falso" 
+                 value="falso"
+                 formControlName="respuestaCorrecta">
+          <label class="btn btn-outline-danger" for="falso">Falso</label>
+        </div>
+        <div class="invalid-feedback" 
+             *ngIf="vfForm.get('respuestaCorrecta')?.errors?.['required'] && 
+                    vfForm.get('respuestaCorrecta')?.touched">
+          Debe seleccionar una respuesta correcta
+        </div>
+      </div>
+
+      <!-- Justificación -->
+      <div class="mb-3">
+        <label for="justificacion" class="form-label">
+          Justificación de la respuesta
+        </label>
+        <textarea class="form-control" 
+                  id="justificacion" 
+                  formControlName="justificacion" 
+                  rows="3"
+                  placeholder="Explique por qué esta es la respuesta correcta..."></textarea>
+        <div class="invalid-feedback" 
+             *ngIf="vfForm.get('justificacion')?.errors?.['required'] && 
+                    vfForm.get('justificacion')?.touched">
+          La justificación es requerida
+        </div>
+      </div>
+    </form>
+  </div>
+</div>

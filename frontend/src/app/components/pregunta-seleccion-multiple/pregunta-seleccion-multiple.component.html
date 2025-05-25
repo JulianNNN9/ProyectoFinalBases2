@@ -1,0 +1,50 @@
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Opciones de Respuesta</h5>
+    <button type="button" class="btn btn-secondary btn-sm" (click)="agregarOpcion()">
+      Agregar Opción
+    </button>
+  </div>
+
+  <div class="card-body">
+    <form [formGroup]="opcionesForm">
+      <div formArrayName="opciones">
+        <div *ngFor="let opcion of opciones.controls; let i=index" 
+             [formGroupName]="i"
+             class="mb-3">
+          <div class="input-group">
+            <div class="input-group-prepend">
+              <div class="input-group-text">
+                <input [type]="esRespuestaUnica ? 'radio' : 'checkbox'"
+                       [name]="esRespuestaUnica ? 'respuestaCorrecta' : ''"
+                       [checked]="opcion.get('esCorrecta')?.value"
+                       (change)="toggleCorrecta(i)">
+              </div>
+            </div>
+            <input type="text" class="form-control" 
+                   formControlName="texto" 
+                   placeholder="Texto de la opción">
+            <button class="btn btn-outline-danger" 
+                    type="button"
+                    (click)="eliminarOpcion(i)"
+                    [disabled]="opciones.length <= 2">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+          <small class="text-danger" *ngIf="opcion.get('texto')?.errors?.['required'] && 
+                                           opcion.get('texto')?.touched">
+            El texto de la opción es requerido
+          </small>
+        </div>
+      </div>
+    </form>
+
+    <div class="alert alert-info mt-3" role="alert">
+      <small>
+        {{ esRespuestaUnica ? 
+          'Seleccione una opción como correcta' : 
+          'Puede seleccionar múltiples opciones como correctas' }}
+      </small>
+    </div>
+  </div>
+</div>
