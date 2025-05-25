@@ -287,6 +287,8 @@ CREATE TABLE Intentos_Examen (
 TABLESPACE TS_INTENTOS
 PCTFREE 10 PCTUSED 50;
 ALTER TABLE Intentos_Examen ADD CONSTRAINT Intentos_Examen_PK PRIMARY KEY (intento_examen_id);
+ALTER TABLE Intentos_Examen ADD direccion_ip VARCHAR2(50);
+
 
 -- 19) Respuestas_Estudiantes
 CREATE TABLE Respuestas_Estudiantes (
