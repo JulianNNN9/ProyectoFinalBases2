@@ -51,6 +51,7 @@ export class CrearPreguntaComponent implements OnInit {
 
   tipoSeleccionado: string = '';
   configuracionEspecifica: any = null;
+  isSubmitting: boolean = false;
 
   constructor(private fb: FormBuilder) {
     this.preguntaForm = this.fb.group({
@@ -125,6 +126,15 @@ export class CrearPreguntaComponent implements OnInit {
       this.subpreguntas = [];
       this.mostrarSubpreguntas = false;
       this.configuracionEspecifica = null;
+    }
+  }
+
+  cancelar(): void {
+    // Navigate back or reset form
+    if (confirm('¿Está seguro que desea cancelar? Se perderán los cambios no guardados.')) {
+      this.preguntaForm.reset();
+      // Optionally navigate back
+      // this.router.navigate(['/banco-preguntas']);
     }
   }
 }

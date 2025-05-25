@@ -63,3 +63,102 @@ BEGIN
              ie.puntaje_total, e.umbral_aprobacion;
 END;
 /
+
+-- Función para analizar la dificultad de las preguntas de un examen
+CREATE OR REPLACE FUNCTION fn_analisis_dificultad_preguntas(
+  p_examen_id IN NUMBER
+) RETURN SYS_REFCURSOR AS
+  v_cursor SYS_REFCURSOR;
+BEGIN
+  OPEN v_cursor FOR
+    SELECT 
+      pe.pregunta_examen_id,
+      p.texto AS pregunta,
+      tp.descripcion AS tipo_pregunta,
+      COUNT(re.respuesta_estudiante_id) AS total_intentos,
+      COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) AS respuestas_correctas,
+      ROUND((COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
+             NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100, 2) AS porcentaje_acierto,
+      CASE 
+        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
+              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100 < 30 THEN 'DIFÍCIL'
+        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
+              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100 > 70 THEN 'FÁCIL'
+        ELSE 'MEDIA'
+      END AS dificultad
+    FROM Preguntas_Examenes pe
+    JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+    JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
+    LEFT JOIN Respuestas_Estudiantes re ON pe.pregunta_examen_id = re.pregunta_examen_id
+    WHERE pe.examen_id = p_examen_id
+    GROUP BY pe.pregunta_examen_id, p.texto, tp.descripcion
+    ORDER BY porcentaje_acierto ASC;
+    
+  RETURN v_cursor;
+END;
+/
+
+-- Procedimiento para obtener el progreso histórico de un estudiante
+CREATE OR REPLACE PROCEDURE sp_progreso_estudiante(
+  p_estudiante_id IN NUMBER,
+  p_cursor OUT SYS_REFCURSOR
+) AS
+BEGIN
+  OPEN p_cursor FOR
+    SELECT 
+      c.nombre AS curso,
+      g.nombre AS grupo,
+      e.examen_id,
+      SUBSTR(e.descripcion, 1, 50) AS examen,
+      ie.fecha_inicio,
+      ie.puntaje_total,
+      e.umbral_aprobacion,
+      CASE 
+        WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 'APROBADO'
+        ELSE 'REPROBADO'
+      END AS resultado,
+      ROW_NUMBER() OVER (PARTITION BY g.grupo_id ORDER BY ie.fecha_inicio) AS intento_numero,
+      AVG(ie.puntaje_total) OVER (PARTITION BY g.grupo_id ORDER BY ie.fecha_inicio 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS promedio_acumulado
+    FROM Intentos_Examen ie
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    WHERE ie.estudiante_id = p_estudiante_id
+    ORDER BY ie.fecha_inicio;
+END;
+/
+
+-- Función para analizar el rendimiento comparativo de los grupos
+CREATE OR REPLACE FUNCTION fn_rendimiento_grupos(
+  p_curso_id IN NUMBER
+) RETURN SYS_REFCURSOR AS
+  v_cursor SYS_REFCURSOR;
+BEGIN
+  OPEN v_cursor FOR
+    SELECT 
+      g.grupo_id,
+      g.nombre AS grupo,
+      u.nombre || ' ' || u.apellido AS profesor,
+      COUNT(DISTINCT ie.estudiante_id) AS total_estudiantes,
+      COUNT(DISTINCT ie.examen_id) AS total_examenes,
+      COUNT(ie.intento_examen_id) AS total_intentos,
+      ROUND(AVG(ie.puntaje_total), 2) AS promedio_general,
+      ROUND(STDDEV(ie.puntaje_total), 2) AS desviacion_estandar,
+      COUNT(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 END) AS intentos_aprobados,
+      ROUND((COUNT(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 END) / 
+             NULLIF(COUNT(ie.intento_examen_id), 0)) * 100, 2) AS porcentaje_aprobacion,
+      MIN(ie.puntaje_total) AS puntaje_minimo,
+      MAX(ie.puntaje_total) AS puntaje_maximo,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ie.puntaje_total) AS mediana
+    FROM Grupos g
+    JOIN Usuarios u ON g.profesor_id = u.usuario_id
+    JOIN Examenes e ON g.grupo_id = e.grupo_id
+    JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id
+    WHERE g.curso_id = p_curso_id
+    GROUP BY g.grupo_id, g.nombre, u.nombre || ' ' || u.apellido
+    ORDER BY promedio_general DESC;
+    
+  RETURN v_cursor;
+END;
+/

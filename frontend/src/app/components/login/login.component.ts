@@ -37,24 +37,30 @@ export class LoginComponent implements OnInit {
 
     this.isLoading = true;
     this.errorMessage = '';
-
+    
     const credentials = {
-      username: this.loginForm.value.username,
-      password: this.loginForm.value.password
+      username: this.loginForm.get('username')?.value, // Esto enviará el email
+      password: this.loginForm.get('password')?.value
     };
 
     this.authService.login(credentials).subscribe({
       next: (response) => {
         this.isLoading = false;
+        // Redireccionar según el rol del usuario
         if (response.role === 'professor') {
-          this.router.navigate(['/professor/dashboard']);
+          this.router.navigate(['/profesor-dashboard']);
         } else {
-          this.router.navigate(['/student/dashboard']);
+          this.router.navigate(['/alumno-dashboard']);
         }
       },
-      error: (error) => {
+      error: (err) => {
         this.isLoading = false;
-        this.errorMessage = error.error?.message || 'Credenciales inválidas. Por favor intente de nuevo.';
+        if (err.status === 401) {
+          this.errorMessage = 'Credenciales incorrectas. Intente nuevamente.';
+        } else {
+          this.errorMessage = 'Error en el servidor. Intente más tarde.';
+        }
+        console.error('Error de login:', err);
       }
     });
   }

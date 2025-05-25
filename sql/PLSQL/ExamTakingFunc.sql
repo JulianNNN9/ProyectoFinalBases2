@@ -270,6 +270,198 @@ BEGIN
 END;
 /
 
+-- Función para calificar preguntas de verdadero/falso
+CREATE OR REPLACE FUNCTION fn_calificar_verdadero_falso(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1);
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+BEGIN
+    -- Obtener la pregunta y su peso
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Verificar si la respuesta es correcta
+    -- Para V/F solo hay una opción correcta (similar a opción única)
+    SELECT 
+        CASE 
+            WHEN COUNT(ro.opcion_pregunta_id) = 1 AND
+                 EXISTS (
+                    SELECT 1 FROM Respuestas_Opciones ro2
+                    JOIN Opciones_Preguntas op ON ro2.opcion_pregunta_id = op.opcion_pregunta_id
+                    WHERE ro2.respuesta_estudiante_id = p_respuesta_estudiante_id
+                    AND op.es_correcta = 'S'
+                 )
+            THEN 'S'
+            ELSE 'N'
+        END
+    INTO v_es_correcta
+    FROM Respuestas_Opciones ro
+    WHERE ro.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Actualizar el estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar el puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
+-- Función para calificar preguntas de ordenamiento
+CREATE OR REPLACE FUNCTION fn_calificar_ordenamiento(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1) := 'S';
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+    v_errores NUMBER := 0;
+BEGIN
+    -- Obtener la pregunta y su peso
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Contar cuántas posiciones son incorrectas
+    SELECT COUNT(*)
+    INTO v_errores
+    FROM Respuestas_Orden ro
+    JOIN Orden_Preguntas op ON ro.orden_pregunta_id = op.orden_pregunta_id
+    WHERE ro.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND ro.posicion_estudiante != op.posicion_correcta;
+    
+    -- Si hay algún error, la respuesta es incorrecta
+    IF v_errores > 0 THEN
+        v_es_correcta := 'N';
+    END IF;
+    
+    -- Actualizar el estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar el puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
+-- Función para calificar preguntas de emparejamiento
+CREATE OR REPLACE FUNCTION fn_calificar_emparejamiento(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1) := 'S';
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+    v_errores NUMBER := 0;
+BEGIN
+    -- Obtener la pregunta y su peso
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Contar emparejamientos incorrectos
+    SELECT COUNT(*)
+    INTO v_errores
+    FROM Respuestas_Emparejamiento re
+    JOIN Emparejamiento_Preguntas ep ON re.emparejamiento_pregunta_id = ep.emparejamiento_pregunta_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND (re.opcion_a != ep.opcion_a OR re.opcion_b != ep.opcion_b);
+    
+    -- Si hay algún error, la respuesta es incorrecta
+    IF v_errores > 0 THEN
+        v_es_correcta := 'N';
+    END IF;
+    
+    -- Actualizar el estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar el puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
+-- Función para calificar preguntas de completar
+CREATE OR REPLACE FUNCTION fn_calificar_completar(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1) := 'N';
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+    v_texto_respuesta CLOB;
+    v_texto_esperado CLOB;
+BEGIN
+    -- Obtener la pregunta y su peso
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Para preguntas de completar, podríamos tener respuestas en texto libre 
+    -- almacenadas en una tabla específica, pero para simplificar usaremos
+    -- la tabla de respuestas de orden para almacenar el texto
+    SELECT ro.texto
+    INTO v_texto_respuesta
+    FROM Respuestas_Orden ro
+    WHERE ro.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND ro.posicion_estudiante = 1; -- Asumimos que usamos la primera posición
+    
+    -- Obtener el texto esperado (podría estar en Opciones_Preguntas o en otra tabla)
+    -- Asumimos que está en la primera opción marcada como correcta
+    SELECT op.texto
+    INTO v_texto_esperado
+    FROM Opciones_Preguntas op
+    JOIN Preguntas_Examenes pe ON op.pregunta_id = pe.pregunta_id
+    WHERE pe.pregunta_examen_id = v_pregunta_examen_id
+    AND op.es_correcta = 'S'
+    AND ROWNUM = 1;
+    
+    -- Comparar ignorando espacios y mayúsculas/minúsculas
+    IF UPPER(TRIM(v_texto_respuesta)) = UPPER(TRIM(v_texto_esperado)) THEN
+        v_es_correcta := 'S';
+    END IF;
+    
+    -- Actualizar el estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar el puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
 -- Procedimiento para calificar un examen completo
 CREATE OR REPLACE PROCEDURE sp_calificar_examen_completo(
     p_intento_id IN NUMBER
@@ -294,7 +486,13 @@ BEGIN
         ELSIF respuesta.tipo_pregunta_id = 2 THEN -- Opción única
             v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
         ELSIF respuesta.tipo_pregunta_id = 3 THEN -- Verdadero/Falso
-            v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
+            v_total_puntos := v_total_puntos + fn_calificar_verdadero_falso(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 4 THEN -- Ordenamiento
+            v_total_puntos := v_total_puntos + fn_calificar_ordenamiento(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 5 THEN -- Emparejamiento
+            v_total_puntos := v_total_puntos + fn_calificar_emparejamiento(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 6 THEN -- Completar
+            v_total_puntos := v_total_puntos + fn_calificar_completar(respuesta.respuesta_estudiante_id);
         END IF;
     END LOOP;
     
@@ -316,7 +514,9 @@ BEGIN
     UPDATE Intentos_Examen
     SET puntaje_total = v_puntaje_final,
         fecha_fin = SYSTIMESTAMP,
-        tiempo_utilizado = ROUND((SYSTIMESTAMP - fecha_inicio) * 24 * 60) -- en minutos
+        tiempo_utilizado = EXTRACT(DAY FROM (SYSTIMESTAMP - fecha_inicio)) * 24 * 60 +
+                          EXTRACT(HOUR FROM (SYSTIMESTAMP - fecha_inicio)) * 60 +
+                          EXTRACT(MINUTE FROM (SYSTIMESTAMP - fecha_inicio))
     WHERE intento_examen_id = p_intento_id;
     
     COMMIT;

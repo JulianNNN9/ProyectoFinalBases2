@@ -1,16 +1,24 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
-
-const usuariosRoutes = require('./routes/usuarios');
-
 const app = express();
-app.use(cors());    
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
 app.use(express.json());
 
-app.use('/api/usuarios', usuariosRoutes);
+// Import routes
+const apiRoutes = require('./routes/api');
 
-const PORT = process.env.PORT || 3000;
+// Use routes
+app.use('/api', apiRoutes);
+
+// Test route
+app.get('/', (req, res) => {
+  res.json({ message: 'API de Plataforma de Exámenes funcionando correctamente' });
+});
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor ejecutándose en el puerto ${PORT}`);
 });
