@@ -528,3 +528,39 @@ BEGIN
   RETURN v_cursor;
 END;
 /
+
+-- Función para verificar si una pregunta es elegible para un examen
+CREATE OR REPLACE FUNCTION fn_verificar_elegibilidad_pregunta(
+    p_pregunta_id IN NUMBER,
+    p_examen_id IN NUMBER
+) RETURN BOOLEAN AS
+    v_tema_id NUMBER;
+    v_curso_id NUMBER;
+    v_es_elegible NUMBER := 0;
+BEGIN
+    -- Obtener el tema de la pregunta
+    SELECT tema_id INTO v_tema_id 
+    FROM Preguntas 
+    WHERE pregunta_id = p_pregunta_id;
+    
+    -- Obtener el curso del examen
+    SELECT c.curso_id INTO v_curso_id
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    WHERE e.examen_id = p_examen_id;
+    
+    -- Verificar si el tema está en el curso
+    SELECT COUNT(*) INTO v_es_elegible
+    FROM Unidades u
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    WHERE u.curso_id = v_curso_id
+    AND ut.tema_id = v_tema_id;
+    
+    RETURN v_es_elegible > 0;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN FALSE;
+END fn_verificar_elegibilidad_pregunta;
+
+/

@@ -1,4 +1,3 @@
-
 /*==============================================================*/
 /* PROCEDURES                                                    */
 /*==============================================================*/
@@ -446,3 +445,155 @@ BEGIN
     COMMIT;
 END;
 /
+
+-- Procedimiento para crear una pregunta nueva
+CREATE OR REPLACE PROCEDURE sp_crear_pregunta(
+    p_creador_id IN NUMBER,
+    p_texto IN CLOB,
+    p_tipo_pregunta_id IN NUMBER,
+    p_tema_id IN NUMBER,
+    p_es_publica IN CHAR DEFAULT 'N',
+    p_tiempo_maximo IN NUMBER DEFAULT NULL,
+    p_pregunta_padre_id IN NUMBER DEFAULT NULL,
+    p_pregunta_id OUT NUMBER
+) AS
+    v_es_profesor NUMBER;
+BEGIN
+    -- Validar que el usuario sea profesor
+    SELECT COUNT(*) INTO v_es_profesor
+    FROM Usuarios u
+    WHERE u.usuario_id = p_creador_id
+    AND u.tipo_usuario_id = (SELECT usuario_id FROM Tipo_Usuario WHERE descripcion = 'PROFESOR');
+    
+    IF v_es_profesor = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Solo los profesores pueden crear preguntas');
+    END IF;
+    
+    -- Generar ID para la nueva pregunta
+    SELECT NVL(MAX(pregunta_id), 0) + 1 INTO p_pregunta_id FROM Preguntas;
+    
+    -- Insertar la pregunta
+    INSERT INTO Preguntas (
+        pregunta_id, texto, fecha_creacion, es_publica, 
+        tiempo_maximo, pregunta_padre_id, tipo_pregunta_id, 
+        creador_id, tema_id
+    ) VALUES (
+        p_pregunta_id, p_texto, SYSTIMESTAMP, p_es_publica,
+        p_tiempo_maximo, p_pregunta_padre_id, p_tipo_pregunta_id,
+        p_creador_id, p_tema_id
+    );
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END sp_crear_pregunta;
+/
+
+-- Procedimiento para agregar opciones a preguntas de selección
+CREATE OR REPLACE PROCEDURE sp_agregar_opcion_pregunta(
+    p_pregunta_id IN NUMBER,
+    p_texto IN CLOB,
+    p_es_correcta IN CHAR,
+    p_orden IN NUMBER DEFAULT NULL,
+    p_opcion_id OUT NUMBER
+) AS
+    v_tipo_pregunta NUMBER;
+BEGIN
+    -- Verificar que la pregunta sea de tipo opción múltiple o única
+    SELECT tipo_pregunta_id INTO v_tipo_pregunta 
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id;
+    
+    IF v_tipo_pregunta NOT IN (1, 2) THEN -- Asumiendo que 1=opción múltiple, 2=opción única
+        RAISE_APPLICATION_ERROR(-20002, 'Esta función solo aplica a preguntas de selección');
+    END IF;
+    
+    -- Generar ID para la nueva opción
+    SELECT NVL(MAX(opcion_pregunta_id), 0) + 1 INTO p_opcion_id FROM Opciones_Preguntas;
+    
+    -- Insertar la opción
+    INSERT INTO Opciones_Preguntas (
+        opcion_pregunta_id, texto, es_correcta, orden, pregunta_id
+    ) VALUES (
+        p_opcion_id, p_texto, p_es_correcta, p_orden, p_pregunta_id
+    );
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END sp_agregar_opcion_pregunta;
+/
+
+-- Procedimiento para agregar una pregunta existente a un examen
+CREATE OR REPLACE PROCEDURE sp_agregar_pregunta_examen(
+    p_profesor_id IN NUMBER,
+    p_pregunta_id IN NUMBER,
+    p_examen_id IN NUMBER,
+    p_peso IN NUMBER DEFAULT NULL,
+    p_orden IN NUMBER DEFAULT NULL
+) AS
+    v_es_profesor_curso NUMBER;
+    v_max_orden NUMBER;
+    v_peso_default NUMBER;
+    v_pregunta_examen_id NUMBER;
+BEGIN
+    -- Verificar que el profesor pertenezca al curso del examen
+    SELECT COUNT(*) INTO v_es_profesor_curso
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    WHERE e.examen_id = p_examen_id
+    AND g.profesor_id = p_profesor_id;
+    
+    IF v_es_profesor_curso = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'El profesor no está asignado al curso de este examen');
+    END IF;
+    
+    -- Obtener el siguiente orden si no se especifica
+    IF p_orden IS NULL THEN
+        SELECT NVL(MAX(orden), 0) + 1 INTO v_max_orden
+        FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id;
+    ELSE
+        v_max_orden := p_orden;
+    END IF;
+    
+    -- Calcular peso por defecto si no se especifica
+    IF p_peso IS NULL THEN
+        SELECT 100 / NULLIF(COUNT(*) + 1, 0) INTO v_peso_default
+        FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id;
+    ELSE
+        v_peso_default := p_peso;
+    END IF;
+    
+    -- Generar ID para la nueva relación pregunta-examen
+    SELECT NVL(MAX(pregunta_examen_id), 0) + 1 INTO v_pregunta_examen_id 
+    FROM Preguntas_Examenes;
+    
+    -- Insertar la relación pregunta-examen
+    INSERT INTO Preguntas_Examenes (
+        pregunta_examen_id, peso, orden, pregunta_id, examen_id
+    ) VALUES (
+        v_pregunta_examen_id, v_peso_default, v_max_orden, p_pregunta_id, p_examen_id
+    );
+    
+    -- Ajustar pesos si es necesario
+    UPDATE Preguntas_Examenes
+    SET peso = (
+        SELECT 100 / COUNT(*) 
+        FROM Preguntas_Examenes 
+        WHERE examen_id = p_examen_id
+    )
+    WHERE examen_id = p_examen_id
+    AND peso IS NULL;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END sp_agregar_pregunta_examen;
