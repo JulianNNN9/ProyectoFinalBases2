@@ -37,3 +37,28 @@ BEGIN
   END IF;
 END;
 /
+
+-- Trigger para prevenir la modificación de exámenes activos
+CREATE OR REPLACE TRIGGER trg_bloquear_edicion_examen
+BEFORE UPDATE ON Examenes
+FOR EACH ROW
+DECLARE
+    v_intentos_count NUMBER;
+BEGIN
+    -- Verificar si hay intentos para este examen
+    SELECT COUNT(*)
+    INTO v_intentos_count
+    FROM Intentos_Examen
+    WHERE examen_id = :OLD.examen_id;
+    
+    -- Si hay intentos, impedir la modificación de campos críticos
+    IF v_intentos_count > 0 AND (
+        :NEW.fecha_disponible <> :OLD.fecha_disponible OR
+        :NEW.fecha_limite <> :OLD.fecha_limite OR
+        :NEW.tiempo_limite <> :OLD.tiempo_limite OR
+        :NEW.cantidad_preguntas_mostrar <> :OLD.cantidad_preguntas_mostrar
+    ) THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No se puede modificar un examen que ya tiene intentos registrados');
+    END IF;
+END;
+/

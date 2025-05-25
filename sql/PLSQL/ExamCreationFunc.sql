@@ -40,6 +40,28 @@ BEGIN
 END;
 /
 
+-- Trigger para asignar ID automáticamente y establecer valores por defecto
+CREATE OR REPLACE TRIGGER trg_examenes_before_insert
+BEFORE INSERT ON Examenes
+FOR EACH ROW
+BEGIN
+    -- Asignar ID automáticamente si es NULL
+    IF :NEW.examen_id IS NULL THEN
+        SELECT seq_examenes.NEXTVAL INTO :NEW.examen_id FROM dual;
+    END IF;
+    
+    -- Establecer fecha de creación automáticamente
+    IF :NEW.fecha_creacion IS NULL THEN
+        :NEW.fecha_creacion := SYSTIMESTAMP;
+    END IF;
+    
+    -- Valores por defecto para umbral de aprobación
+    IF :NEW.umbral_aprobacion IS NULL THEN
+        :NEW.umbral_aprobacion := 60;
+    END IF;
+END;
+/
+
 -- Procedimiento para agregar preguntas al examen de forma equilibrada
 CREATE OR REPLACE PROCEDURE sp_agregar_preguntas_equilibradas(
   p_examen_id IN NUMBER,
@@ -154,5 +176,120 @@ BEGIN
   IF v_count > 0 THEN
     RAISE_APPLICATION_ERROR(-20006, 'La pregunta ya existe en este examen');
   END IF;
+END;
+/
+
+-- Trigger para verificar que no se exceda el límite de preguntas en un examen
+CREATE OR REPLACE TRIGGER trg_verificar_limite_preguntas
+BEFORE INSERT ON Preguntas_Examenes
+FOR EACH ROW
+DECLARE
+    v_total_preguntas NUMBER;
+    v_limite_preguntas NUMBER;
+BEGIN
+    -- Obtener cantidad actual de preguntas
+    SELECT COUNT(*)
+    INTO v_total_preguntas
+    FROM Preguntas_Examenes
+    WHERE examen_id = :NEW.examen_id;
+    
+    -- Obtener límite configurado
+    SELECT cantidad_preguntas_mostrar
+    INTO v_limite_preguntas
+    FROM Examenes
+    WHERE examen_id = :NEW.examen_id;
+    
+    -- Verificar si excede el límite (solo si hay un límite configurado)
+    IF v_limite_preguntas IS NOT NULL AND v_total_preguntas >= v_limite_preguntas THEN
+        RAISE_APPLICATION_ERROR(-20002, 'No se pueden agregar más preguntas. Límite alcanzado.');
+    END IF;
+END;
+/
+
+-- Procedimiento para llenar un examen con preguntas aleatorias
+CREATE OR REPLACE PROCEDURE sp_llenar_examen_aleatorio(
+    p_examen_id IN NUMBER,
+    p_cantidad_preguntas IN NUMBER
+) AS
+    v_preguntas_disponibles NUMBER;
+    v_tema_id NUMBER;
+    v_siguiente_id NUMBER;
+BEGIN
+    -- Obtener el tema del curso asociado al examen
+    SELECT t.tema_id INTO v_tema_id
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    JOIN Unidades u ON c.curso_id = u.curso_id
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    JOIN Temas t ON ut.tema_id = t.tema_id
+    WHERE e.examen_id = p_examen_id
+    AND ROWNUM = 1;
+    
+    -- Verificar si hay suficientes preguntas disponibles
+    SELECT COUNT(*)
+    INTO v_preguntas_disponibles
+    FROM Preguntas
+    WHERE tema_id = v_tema_id
+    AND es_publica = 'S';
+    
+    IF v_preguntas_disponibles < p_cantidad_preguntas THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No hay suficientes preguntas disponibles para el examen');
+        RETURN;
+    END IF;
+    
+    -- Obtener el siguiente ID para pregunta_examen
+    SELECT NVL(MAX(pregunta_examen_id), 0) + 1
+    INTO v_siguiente_id
+    FROM Preguntas_Examenes;
+    
+    -- Insertar preguntas aleatorias
+    INSERT INTO Preguntas_Examenes (
+        pregunta_examen_id,
+        peso,
+        orden,
+        pregunta_id,
+        examen_id
+    )
+    SELECT 
+        v_siguiente_id + ROWNUM - 1,
+        100 / p_cantidad_preguntas,  -- Distribuir peso equitativamente
+        ROWNUM,
+        pregunta_id,
+        p_examen_id
+    FROM (
+        SELECT pregunta_id
+        FROM Preguntas
+        WHERE tema_id = v_tema_id
+        AND es_publica = 'S'
+        AND pregunta_id NOT IN (
+            SELECT pregunta_id FROM Preguntas_Examenes
+            WHERE examen_id = p_examen_id
+        )
+        ORDER BY DBMS_RANDOM.VALUE
+    )
+    WHERE ROWNUM <= p_cantidad_preguntas;
+    
+    COMMIT;
+END;
+/
+
+-- Procedimiento para actualizar preguntas compuestas
+CREATE OR REPLACE PROCEDURE sp_actualizar_preguntas_compuestas(
+    p_pregunta_principal_id IN NUMBER,
+    p_cantidad_subpreguntas IN NUMBER
+) AS
+BEGIN
+    IF p_cantidad_subpreguntas > 0 THEN
+        -- Seleccionar subpreguntas del mismo tema
+        UPDATE Preguntas
+        SET pregunta_padre_id = p_pregunta_principal_id
+        WHERE tema_id = (SELECT tema_id FROM Preguntas WHERE pregunta_id = p_pregunta_principal_id)
+        AND pregunta_id <> p_pregunta_principal_id
+        AND pregunta_padre_id IS NULL
+        AND ROWNUM <= p_cantidad_subpreguntas;
+        
+        COMMIT;
+    END IF;
 END;
 /

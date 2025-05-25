@@ -127,3 +127,198 @@ BEGIN
   COMMIT;
 END;
 /
+
+-- Procedimiento para verificar si la entrega está dentro del tiempo límite
+CREATE OR REPLACE PROCEDURE sp_verificar_tiempo_entrega(
+    p_intento_id IN NUMBER,
+    p_resultado OUT VARCHAR2
+) AS
+    v_fecha_inicio TIMESTAMP;
+    v_fecha_fin TIMESTAMP;
+    v_tiempo_limite NUMBER;
+    v_examen_id NUMBER;
+BEGIN
+    -- Obtener datos del intento
+    SELECT ie.fecha_inicio, SYSTIMESTAMP, e.tiempo_limite, ie.examen_id
+    INTO v_fecha_inicio, v_fecha_fin, v_tiempo_limite, v_examen_id
+    FROM Intentos_Examen ie
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    WHERE ie.intento_examen_id = p_intento_id;
+    
+    -- Calcular tiempo transcurrido en minutos
+    IF (EXTRACT(DAY FROM (v_fecha_fin - v_fecha_inicio)) * 24 * 60 +
+        EXTRACT(HOUR FROM (v_fecha_fin - v_fecha_inicio)) * 60 +
+        EXTRACT(MINUTE FROM (v_fecha_fin - v_fecha_inicio))) > v_tiempo_limite THEN
+        
+        p_resultado := 'ERROR: Tiempo de entrega excedido';
+    ELSE
+        p_resultado := 'EXITO: Entrega dentro del tiempo permitido';
+    END IF;
+END;
+/
+
+-- Función para calificar preguntas de opción única
+CREATE OR REPLACE FUNCTION fn_calificar_opcion_unica(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1);
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+BEGIN
+    -- Obtener la pregunta y verificar respuestas
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Verificar si la respuesta es correcta
+    -- Compara opciones marcadas con opciones correctas
+    SELECT 
+        CASE 
+            WHEN COUNT(DISTINCT ro.opcion_pregunta_id) = 
+                 (SELECT COUNT(*) FROM Opciones_Preguntas op 
+                  WHERE op.pregunta_id = pe.pregunta_id 
+                  AND op.es_correcta = 'S')
+            THEN 'S'
+            ELSE 'N'
+        END
+    INTO v_es_correcta
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    JOIN Respuestas_Opciones ro ON re.respuesta_estudiante_id = ro.respuesta_estudiante_id
+    JOIN Opciones_Preguntas op ON ro.opcion_pregunta_id = op.opcion_pregunta_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND op.es_correcta = 'S';
+    
+    -- Actualizar el estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar el puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
+-- Función para calificar preguntas de opción múltiple
+CREATE OR REPLACE FUNCTION fn_calificar_opcion_multiple(
+    p_respuesta_estudiante_id IN NUMBER
+) RETURN NUMBER AS
+    v_es_correcta CHAR(1) := 'S';
+    v_peso NUMBER;
+    v_pregunta_examen_id NUMBER;
+    v_correctas_marcadas NUMBER := 0;
+    v_correctas_totales NUMBER := 0;
+    v_incorrectas_marcadas NUMBER := 0;
+BEGIN
+    -- Obtener la pregunta y el peso
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso, v_pregunta_examen_id
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Contar opciones correctas marcadas
+    SELECT COUNT(*)
+    INTO v_correctas_marcadas
+    FROM Respuestas_Opciones ro
+    JOIN Opciones_Preguntas op ON ro.opcion_pregunta_id = op.opcion_pregunta_id
+    WHERE ro.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND op.es_correcta = 'S';
+    
+    -- Contar total de opciones correctas
+    SELECT COUNT(*)
+    INTO v_correctas_totales
+    FROM Opciones_Preguntas op
+    JOIN Preguntas_Examenes pe ON op.pregunta_id = pe.pregunta_id
+    WHERE pe.pregunta_examen_id = v_pregunta_examen_id
+    AND op.es_correcta = 'S';
+    
+    -- Contar opciones incorrectas marcadas
+    SELECT COUNT(*)
+    INTO v_incorrectas_marcadas
+    FROM Respuestas_Opciones ro
+    JOIN Opciones_Preguntas op ON ro.opcion_pregunta_id = op.opcion_pregunta_id
+    WHERE ro.respuesta_estudiante_id = p_respuesta_estudiante_id
+    AND op.es_correcta = 'N';
+    
+    -- Verificar si todas las correctas están marcadas y ninguna incorrecta
+    IF v_correctas_marcadas = v_correctas_totales AND v_incorrectas_marcadas = 0 THEN
+        v_es_correcta := 'S';
+    ELSE
+        v_es_correcta := 'N';
+    END IF;
+    
+    -- Actualizar estado de la respuesta
+    UPDATE Respuestas_Estudiantes
+    SET es_correcta = v_es_correcta,
+        puntaje_obtenido = CASE WHEN v_es_correcta = 'S' THEN v_peso ELSE 0 END
+    WHERE respuesta_estudiante_id = p_respuesta_estudiante_id;
+    
+    -- Retornar puntaje
+    IF v_es_correcta = 'S' THEN
+        RETURN v_peso;
+    ELSE
+        RETURN 0;
+    END IF;
+END;
+/
+
+-- Procedimiento para calificar un examen completo
+CREATE OR REPLACE PROCEDURE sp_calificar_examen_completo(
+    p_intento_id IN NUMBER
+) AS
+    v_total_puntos NUMBER := 0;
+    v_puntos_posibles NUMBER := 0;
+    v_puntaje_final NUMBER;
+BEGIN
+    -- Calificar cada respuesta según el tipo de pregunta
+    FOR respuesta IN (
+        SELECT 
+            re.respuesta_estudiante_id,
+            p.tipo_pregunta_id
+        FROM Respuestas_Estudiantes re
+        JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+        WHERE re.intento_examen_id = p_intento_id
+    ) LOOP
+        -- Calificar según el tipo de pregunta
+        IF respuesta.tipo_pregunta_id = 1 THEN -- Opción múltiple
+            v_total_puntos := v_total_puntos + fn_calificar_opcion_multiple(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 2 THEN -- Opción única
+            v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
+        ELSIF respuesta.tipo_pregunta_id = 3 THEN -- Verdadero/Falso
+            v_total_puntos := v_total_puntos + fn_calificar_opcion_unica(respuesta.respuesta_estudiante_id);
+        END IF;
+    END LOOP;
+    
+    -- Calcular total de puntos posibles
+    SELECT SUM(pe.peso)
+    INTO v_puntos_posibles
+    FROM Preguntas_Examenes pe
+    JOIN Respuestas_Estudiantes re ON pe.pregunta_examen_id = re.pregunta_examen_id
+    WHERE re.intento_examen_id = p_intento_id;
+    
+    -- Calcular puntaje final (regla de tres)
+    IF v_puntos_posibles > 0 THEN
+        v_puntaje_final := (v_total_puntos / v_puntos_posibles) * 100;
+    ELSE
+        v_puntaje_final := 0;
+    END IF;
+    
+    -- Actualizar intento con el puntaje final
+    UPDATE Intentos_Examen
+    SET puntaje_total = v_puntaje_final,
+        fecha_fin = SYSTIMESTAMP,
+        tiempo_utilizado = ROUND((SYSTIMESTAMP - fecha_inicio) * 24 * 60) -- en minutos
+    WHERE intento_examen_id = p_intento_id;
+    
+    COMMIT;
+END;
+/
