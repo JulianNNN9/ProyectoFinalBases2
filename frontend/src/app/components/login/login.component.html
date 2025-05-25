@@ -1,1 +1,62 @@
-<p>login works!</p>
+<div class="container d-flex align-items-center justify-content-center min-vh-100">
+  <div class="login-container">
+    <div class="card shadow">
+      <div class="card-header bg-primary text-white text-center py-3">
+        <h3 class="mb-0">Plataforma de Exámenes</h3>
+      </div>
+      <div class="card-body p-4">
+        <h5 class="card-title text-center mb-4 fw-bold">Iniciar Sesión</h5>
+        
+        <div *ngIf="errorMessage" class="alert alert-danger">
+          {{ errorMessage }}
+        </div>
+
+        <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+          <div class="mb-4">
+            <label for="username" class="form-label fw-medium">Usuario</label>
+            <input 
+              type="text" 
+              class="form-control form-control-lg" 
+              id="username" 
+              formControlName="username"
+              [ngClass]="{'is-invalid': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}"
+              placeholder="Ingrese su nombre de usuario"
+            >
+            <div class="invalid-feedback" *ngIf="loginForm.get('username')?.errors?.['required'] && loginForm.get('username')?.touched">
+              El usuario es requerido
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label for="password" class="form-label fw-medium">Contraseña</label>
+            <input 
+              type="password" 
+              class="form-control form-control-lg" 
+              id="password" 
+              formControlName="password"
+              [ngClass]="{'is-invalid': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}"
+              placeholder="Ingrese su contraseña"
+            >
+            <div class="invalid-feedback" *ngIf="loginForm.get('password')?.errors?.['required'] && loginForm.get('password')?.touched">
+              La contraseña es requerida
+            </div>
+            <div class="invalid-feedback" *ngIf="loginForm.get('password')?.errors?.['minlength'] && loginForm.get('password')?.touched">
+              La contraseña debe tener al menos 6 caracteres
+            </div>
+          </div>
+
+          <div class="d-grid gap-2 mt-4">
+            <button 
+              type="submit" 
+              class="btn btn-primary btn-lg" 
+              [disabled]="loginForm.invalid || isLoading"
+            >
+              <span *ngIf="isLoading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              Ingresar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
