@@ -597,3 +597,88 @@ EXCEPTION
         ROLLBACK;
         RAISE;
 END sp_agregar_pregunta_examen;
+
+create or replace NONEDITIONABLE PROCEDURE sp_presentar_examen_estudiante (
+    p_estudiante_id     IN NUMBER,
+    p_examen_id         IN NUMBER,
+    p_direccion_ip      IN VARCHAR2,
+    p_respuestas        IN SYS_REFCURSOR, -- Cursor con las respuestas del estudiante
+    p_resultado         OUT VARCHAR2
+) IS
+    v_elegibilidad     VARCHAR2(200);
+    v_intento_id       NUMBER;
+    v_fecha_inicio     TIMESTAMP := SYSTIMESTAMP;
+    v_fecha_fin        TIMESTAMP;
+    v_msg_tiempo       VARCHAR2(200);
+    v_examen_valido    BOOLEAN := FALSE;
+BEGIN
+    -- 1. Validar elegibilidad
+    v_elegibilidad := fn_verificar_elegibilidad(p_estudiante_id, p_examen_id);
+
+    IF v_elegibilidad <> 'ELEGIBLE' THEN
+        p_resultado := v_elegibilidad;
+        RETURN;
+    END IF;
+
+    -- 2. Registrar intento del examen
+    SELECT SQ_INTENTO_EXAMEN_ID.NEXTVAL INTO v_intento_id FROM DUAL;
+
+    INSERT INTO Intentos_Examen (intento_examen_id, estudiante_id, examen_id, fecha_inicio, direccion_ip)
+    VALUES (v_intento_id, p_estudiante_id, p_examen_id, v_fecha_inicio, p_direccion_ip);
+
+    -- 3. Procesar respuestas desde el cursor
+    LOOP
+        DECLARE
+            v_pregunta_examen_id NUMBER;
+            v_tipo_pregunta_id   NUMBER;
+            v_dato_respuesta     CLOB;
+        BEGIN
+            FETCH p_respuestas INTO v_pregunta_examen_id, v_tipo_pregunta_id, v_dato_respuesta;
+            EXIT WHEN p_respuestas%NOTFOUND;
+
+            -- Registrar respuesta del estudiante
+            INSERT INTO Respuestas_Estudiantes (respuesta_estudiante_id, pregunta_examen_id, intento_examen_id)
+            VALUES (SQ_RESPUESTA_ESTUDIANTE_ID.NEXTVAL, v_pregunta_examen_id, v_intento_id);
+
+            -- Insertar detalles de la respuesta según tipo (simplificado)
+            IF v_tipo_pregunta_id = 1 THEN -- OPCION_MULTIPLE
+                -- Parsear y registrar múltiples opciones (usar delimitadores si es texto largo)
+                NULL; -- Implementar según estructura de tabla
+            ELSIF v_tipo_pregunta_id = 2 THEN -- OPCION_UNICA
+                NULL; -- Similar, insertar una única opción
+            ELSIF v_tipo_pregunta_id = 3 THEN -- VERDADERO_FALSO
+                NULL;
+            ELSIF v_tipo_pregunta_id = 4 THEN -- ORDENAR
+                NULL;
+            ELSIF v_tipo_pregunta_id = 5 THEN -- EMPAREJAR
+                NULL;
+            ELSIF v_tipo_pregunta_id = 6 THEN -- COMPLETAR
+                NULL;
+            END IF;
+
+        END;
+    END LOOP;
+
+    CLOSE p_respuestas;
+
+    -- 4. Verificar tiempo de entrega
+    sp_verificar_tiempo_entrega(v_intento_id, v_msg_tiempo);
+
+    IF v_msg_tiempo LIKE 'ERROR%' THEN
+        p_resultado := v_msg_tiempo;
+        RETURN;
+    END IF;
+
+    -- 5. Calificar el examen completo
+    sp_calificar_examen_completo(v_intento_id);
+
+
+    -- 6. Notificar resultado al estudiante (por ejemplo, con un trigger o log)
+    p_resultado := 'EXAMEN FINALIZADO Y CALIFICADO CORRECTAMENTE.';
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        p_resultado := 'ERROR DURANTE LA PRESENTACIÓN DEL EXAMEN: ' || SQLERRM;
+END;
