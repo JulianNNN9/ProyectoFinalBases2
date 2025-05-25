@@ -92,6 +92,7 @@ CREATE OR REPLACE PROCEDURE sp_agregar_preguntas_equilibradas(
   v_preguntas_por_tema NUMBER;
   v_siguiente_orden NUMBER;
   v_peso_por_pregunta NUMBER;
+  v_preguntas_disponibles NUMBER := 0;
 BEGIN
   -- Obtener el siguiente orden
   SELECT NVL(MAX(orden), 0) + 1
@@ -106,11 +107,19 @@ BEGIN
     v_temas(v_total_temas).tema_id := tema_rec.tema_id;
     v_temas(v_total_temas).nombre := tema_rec.nombre;
     v_temas(v_total_temas).num_preguntas := tema_rec.num_preguntas;
+    -- Sumar preguntas disponibles
+    v_preguntas_disponibles := v_preguntas_disponibles + tema_rec.num_preguntas;
   END LOOP;
   
   -- Si no hay temas, salir
   IF v_total_temas = 0 THEN
     RAISE_APPLICATION_ERROR(-20005, 'No hay temas disponibles para este examen');
+    RETURN;
+  END IF;
+  
+  -- Verificar si hay suficientes preguntas disponibles
+  IF v_preguntas_disponibles < p_cantidad_preguntas THEN
+    RAISE_APPLICATION_ERROR(-20008, 'No hay suficientes preguntas relacionadas con los temas del curso para este examen');
     RETURN;
   END IF;
   
@@ -212,29 +221,27 @@ CREATE OR REPLACE PROCEDURE sp_llenar_examen_aleatorio(
     p_cantidad_preguntas IN NUMBER
 ) AS
     v_preguntas_disponibles NUMBER;
-    v_tema_id NUMBER;
     v_siguiente_id NUMBER;
 BEGIN
-    -- Obtener el tema del curso asociado al examen
-    SELECT t.tema_id INTO v_tema_id
+    -- Verificar si hay suficientes preguntas disponibles de los temas del curso
+    SELECT COUNT(DISTINCT p.pregunta_id)
+    INTO v_preguntas_disponibles
     FROM Examenes e
     JOIN Grupos g ON e.grupo_id = g.grupo_id
     JOIN Cursos c ON g.curso_id = c.curso_id
     JOIN Unidades u ON c.curso_id = u.curso_id
     JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
     JOIN Temas t ON ut.tema_id = t.tema_id
+    JOIN Preguntas p ON t.tema_id = p.tema_id
     WHERE e.examen_id = p_examen_id
-    AND ROWNUM = 1;
-    
-    -- Verificar si hay suficientes preguntas disponibles
-    SELECT COUNT(*)
-    INTO v_preguntas_disponibles
-    FROM Preguntas
-    WHERE tema_id = v_tema_id
-    AND es_publica = 'S';
+    AND p.es_publica = 'S'
+    AND p.pregunta_id NOT IN (
+        SELECT pregunta_id FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id
+    );
     
     IF v_preguntas_disponibles < p_cantidad_preguntas THEN
-        RAISE_APPLICATION_ERROR(-20001, 'No hay suficientes preguntas disponibles para el examen');
+        RAISE_APPLICATION_ERROR(-20001, 'No hay suficientes preguntas relacionadas con los temas del curso para este examen');
         RETURN;
     END IF;
     
@@ -243,7 +250,7 @@ BEGIN
     INTO v_siguiente_id
     FROM Preguntas_Examenes;
     
-    -- Insertar preguntas aleatorias
+    -- Insertar preguntas aleatorias pero solo de los temas relacionados con el curso
     INSERT INTO Preguntas_Examenes (
         pregunta_examen_id,
         peso,
@@ -258,11 +265,17 @@ BEGIN
         pregunta_id,
         p_examen_id
     FROM (
-        SELECT pregunta_id
-        FROM Preguntas
-        WHERE tema_id = v_tema_id
-        AND es_publica = 'S'
-        AND pregunta_id NOT IN (
+        SELECT DISTINCT p.pregunta_id
+        FROM Examenes e
+        JOIN Grupos g ON e.grupo_id = g.grupo_id
+        JOIN Cursos c ON g.curso_id = c.curso_id
+        JOIN Unidades u ON c.curso_id = u.curso_id
+        JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+        JOIN Temas t ON ut.tema_id = t.tema_id
+        JOIN Preguntas p ON t.tema_id = p.tema_id
+        WHERE e.examen_id = p_examen_id
+        AND p.es_publica = 'S'
+        AND p.pregunta_id NOT IN (
             SELECT pregunta_id FROM Preguntas_Examenes
             WHERE examen_id = p_examen_id
         )
@@ -288,6 +301,287 @@ BEGIN
         AND pregunta_id <> p_pregunta_principal_id
         AND pregunta_padre_id IS NULL
         AND ROWNUM <= p_cantidad_subpreguntas;
+        
+        COMMIT;
+    END IF;
+END;
+/
+
+-- Función para validar que una pregunta pertenece a los temas del curso del examen
+CREATE OR REPLACE FUNCTION fn_pregunta_pertenece_examen(
+  p_pregunta_id IN NUMBER,
+  p_examen_id IN NUMBER
+) RETURN BOOLEAN IS
+  v_count NUMBER;
+BEGIN
+  -- Verificar si la pregunta pertenece a algún tema del curso asociado al examen
+  SELECT COUNT(*)
+  INTO v_count
+  FROM Preguntas p
+  JOIN Temas t ON p.tema_id = t.tema_id
+  JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+  JOIN Unidades u ON ut.unidad_id = u.unidad_id
+  JOIN Cursos c ON u.curso_id = c.curso_id
+  JOIN Grupos g ON c.curso_id = g.curso_id
+  JOIN Examenes e ON g.grupo_id = e.grupo_id
+  WHERE p.pregunta_id = p_pregunta_id
+  AND e.examen_id = p_examen_id;
+  
+  RETURN v_count > 0;
+END;
+/
+
+-- Trigger para validar que las preguntas pertenezcan al tema del examen
+CREATE OR REPLACE TRIGGER trg_validar_pregunta_tema_examen
+BEFORE INSERT ON Preguntas_Examenes
+FOR EACH ROW
+DECLARE
+  v_pertenece BOOLEAN;
+BEGIN
+  -- Verificar que la pregunta pertenezca a los temas del curso del examen
+  v_pertenece := fn_pregunta_pertenece_examen(:NEW.pregunta_id, :NEW.examen_id);
+  
+  IF NOT v_pertenece THEN
+    RAISE_APPLICATION_ERROR(-20007, 'La pregunta no pertenece a los temas del curso asociado al examen');
+  END IF;
+END;
+/
+
+-- Trigger para agregar automáticamente subpreguntas cuando se agrega una pregunta compuesta
+CREATE OR REPLACE TRIGGER trg_agregar_subpreguntas_examen
+AFTER INSERT ON Preguntas_Examenes
+FOR EACH ROW
+DECLARE
+    v_siguiente_orden NUMBER;
+    v_peso_subpregunta NUMBER;
+    v_count NUMBER := 0;
+BEGIN
+    -- Verificar si la pregunta insertada tiene subpreguntas
+    SELECT COUNT(*)
+    INTO v_count
+    FROM Preguntas
+    WHERE pregunta_padre_id = :NEW.pregunta_id;
+    
+    -- Si tiene subpreguntas, agregarlas al examen
+    IF v_count > 0 THEN
+        -- Obtener el siguiente orden (después de la pregunta principal)
+        v_siguiente_orden := :NEW.orden + 1;
+        
+        -- Calcular peso para distribuir entre subpreguntas (50% del peso original)
+        -- La pregunta principal mantendrá el otro 50%
+        v_peso_subpregunta := :NEW.peso / 2 / v_count;
+        
+        -- Actualizar el peso de la pregunta principal
+        UPDATE Preguntas_Examenes
+        SET peso = :NEW.peso / 2
+        WHERE pregunta_examen_id = :NEW.pregunta_examen_id;
+        
+        -- Insertar todas las subpreguntas
+        INSERT INTO Preguntas_Examenes (
+            pregunta_examen_id,
+            peso,
+            orden,
+            pregunta_id,
+            examen_id
+        )
+        SELECT 
+            SQ_PREGUNTA_EXAMEN_ID.NEXTVAL,
+            v_peso_subpregunta,
+            v_siguiente_orden + ROWNUM - 1,
+            pregunta_id,
+            :NEW.examen_id
+        FROM (
+            SELECT p.pregunta_id
+            FROM Preguntas p
+            WHERE p.pregunta_padre_id = :NEW.pregunta_id
+            AND NOT EXISTS (
+                -- Evitar duplicados (aunque el trigger trg_evitar_preguntas_duplicadas también lo maneja)
+                SELECT 1 FROM Preguntas_Examenes pe
+                WHERE pe.pregunta_id = p.pregunta_id
+                AND pe.examen_id = :NEW.examen_id
+            )
+            ORDER BY p.pregunta_id  -- Orden consistente
+        );
+        
+        -- Actualizar orden para las preguntas que vengan después
+        UPDATE Preguntas_Examenes
+        SET orden = orden + v_count
+        WHERE examen_id = :NEW.examen_id
+        AND orden > :NEW.orden
+        AND pregunta_examen_id != :NEW.pregunta_examen_id;
+    END IF;
+END;
+/
+
+-- Modificar la función fn_pregunta_pertenece_examen para considerar preguntas compuestas
+CREATE OR REPLACE FUNCTION fn_pregunta_pertenece_examen(
+  p_pregunta_id IN NUMBER,
+  p_examen_id IN NUMBER
+) RETURN BOOLEAN IS
+  v_count NUMBER;
+  v_padre_id NUMBER;
+  v_padre_pertenece BOOLEAN := FALSE;
+BEGIN
+  -- Primero verificar si es una subpregunta
+  SELECT pregunta_padre_id
+  INTO v_padre_id
+  FROM Preguntas
+  WHERE pregunta_id = p_pregunta_id
+  AND pregunta_padre_id IS NOT NULL;
+  
+  -- Si tiene padre, verificar si el padre pertenece al examen
+  IF v_padre_id IS NOT NULL THEN
+    -- Verificar si el padre pertenece a los temas del curso
+    SELECT COUNT(*)
+    INTO v_count
+    FROM Preguntas p
+    JOIN Temas t ON p.tema_id = t.tema_id
+    JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+    JOIN Unidades u ON ut.unidad_id = u.unidad_id
+    JOIN Cursos c ON u.curso_id = c.curso_id
+    JOIN Grupos g ON c.curso_id = g.curso_id
+    JOIN Examenes e ON g.grupo_id = e.grupo_id
+    WHERE p.pregunta_id = v_padre_id
+    AND e.examen_id = p_examen_id;
+    
+    v_padre_pertenece := (v_count > 0);
+    
+    -- Si el padre pertenece, la subpregunta también pertenece
+    IF v_padre_pertenece THEN
+      RETURN TRUE;
+    END IF;
+  END IF;
+  
+  -- Verificar si la pregunta pertenece directamente a algún tema del curso
+  SELECT COUNT(*)
+  INTO v_count
+  FROM Preguntas p
+  JOIN Temas t ON p.tema_id = t.tema_id
+  JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+  JOIN Unidades u ON ut.unidad_id = u.unidad_id
+  JOIN Cursos c ON u.curso_id = c.curso_id
+  JOIN Grupos g ON c.curso_id = g.curso_id
+  JOIN Examenes e ON g.grupo_id = e.grupo_id
+  WHERE p.pregunta_id = p_pregunta_id
+  AND e.examen_id = p_examen_id;
+  
+  RETURN v_count > 0;
+END;
+/
+
+-- Procedimiento para validar y completar examen
+CREATE OR REPLACE PROCEDURE sp_validar_completar_examen(
+    p_examen_id IN NUMBER
+) AS
+    v_total_preguntas NUMBER;
+    v_cantidad_esperada NUMBER;
+    v_suma_pesos NUMBER;
+    v_faltantes NUMBER;
+BEGIN
+    -- Obtener cantidad esperada de preguntas
+    SELECT NVL(cantidad_preguntas_mostrar, 0)
+    INTO v_cantidad_esperada
+    FROM Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Si no hay una cantidad definida, no es necesario completar
+    IF v_cantidad_esperada = 0 THEN
+        RETURN;
+    END IF;
+    
+    -- Contar preguntas actuales y sumar pesos
+    SELECT COUNT(*), NVL(SUM(peso), 0)
+    INTO v_total_preguntas, v_suma_pesos
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Verificar si faltan preguntas
+    IF v_total_preguntas < v_cantidad_esperada THEN
+        v_faltantes := v_cantidad_esperada - v_total_preguntas;
+        
+        -- Completar con preguntas aleatorias
+        sp_llenar_examen_aleatorio(p_examen_id, v_faltantes);
+        
+        -- Actualizar conteo después de agregar preguntas
+        SELECT COUNT(*)
+        INTO v_total_preguntas
+        FROM Preguntas_Examenes
+        WHERE examen_id = p_examen_id;
+    END IF;
+    
+    -- Validar y ajustar pesos para que sumen 100%
+    IF v_suma_pesos != 100 AND v_total_preguntas > 0 THEN
+        -- Distribuir pesos equitativamente
+        UPDATE Preguntas_Examenes
+        SET peso = 100 / v_total_preguntas
+        WHERE examen_id = p_examen_id;
+    END IF;
+    
+    COMMIT;
+    
+    -- Verificación final
+    SELECT COUNT(*), SUM(peso)
+    INTO v_total_preguntas, v_suma_pesos
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Registrar resultado en log
+    DBMS_OUTPUT.PUT_LINE('Examen ' || p_examen_id || ' validado: ' || 
+                         v_total_preguntas || ' preguntas, ' || 
+                         'peso total: ' || v_suma_pesos || '%');
+END;
+/
+
+-- Trigger para prevenir preguntas sin peso definido
+CREATE OR REPLACE TRIGGER trg_validar_peso_pregunta
+BEFORE INSERT OR UPDATE ON Preguntas_Examenes
+FOR EACH ROW
+DECLARE
+    v_total_preguntas NUMBER;
+BEGIN
+    -- Si el peso es NULL o 0, asignar un valor por defecto
+    IF :NEW.peso IS NULL OR :NEW.peso = 0 THEN
+        -- Contar preguntas actuales en el examen
+        SELECT COUNT(*) + 1 -- +1 para incluir esta nueva pregunta
+        INTO v_total_preguntas
+        FROM Preguntas_Examenes
+        WHERE examen_id = :NEW.examen_id;
+        
+        -- Asignar peso equitativo
+        :NEW.peso := 100 / v_total_preguntas;
+    END IF;
+END;
+/
+
+-- Trigger para validar y completar exámenes automáticamente al finalizar edición
+CREATE OR REPLACE TRIGGER trg_completar_examen
+AFTER UPDATE ON Examenes
+FOR EACH ROW
+WHEN (NEW.fecha_disponible IS NOT NULL AND OLD.fecha_disponible IS NULL)
+BEGIN
+    -- Si se está configurando la fecha disponible, asumir que está listo para publicar
+    -- y validar/completar el examen
+    sp_validar_completar_examen(:NEW.examen_id);
+END;
+/
+
+-- Procedimiento para rebalancear pesos de preguntas en un examen
+CREATE OR REPLACE PROCEDURE sp_rebalancear_pesos_examen(
+    p_examen_id IN NUMBER
+) AS
+    v_total_preguntas NUMBER;
+BEGIN
+    -- Contar preguntas en el examen
+    SELECT COUNT(*)
+    INTO v_total_preguntas
+    FROM Preguntas_Examenes
+    WHERE examen_id = p_examen_id;
+    
+    -- Si hay preguntas, distribuir pesos equitativamente
+    IF v_total_preguntas > 0 THEN
+        UPDATE Preguntas_Examenes
+        SET peso = 100 / v_total_preguntas
+        WHERE examen_id = p_examen_id;
         
         COMMIT;
     END IF;

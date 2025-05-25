@@ -162,3 +162,107 @@ BEGIN
   RETURN v_cursor;
 END;
 /
+
+-- Procedimiento para generar reporte detallado de intentos de examen
+CREATE OR REPLACE PROCEDURE sp_reporte_detalle_intentos(
+  p_examen_id IN NUMBER DEFAULT NULL,
+  p_grupo_id IN NUMBER DEFAULT NULL,
+  p_fecha_inicio IN DATE DEFAULT NULL,
+  p_fecha_fin IN DATE DEFAULT NULL,
+  p_cursor OUT SYS_REFCURSOR
+) AS
+BEGIN
+  OPEN p_cursor FOR
+    SELECT 
+      ie.intento_examen_id,
+      ie.fecha_inicio AS fecha_intento,
+      ie.fecha_fin AS fecha_finalizacion,
+      -- Datos del estudiante
+      u.usuario_id,
+      u.nombre || ' ' || u.apellido AS nombre_completo,
+      u.email,
+      u.nombre_usuario,
+      -- Datos del examen
+      e.examen_id,
+      e.titulo AS titulo_examen,
+      SUBSTR(e.descripcion, 1, 50) AS descripcion_examen,
+      c.nombre AS curso,
+      g.nombre AS grupo,
+      -- Puntaje y estado
+      ie.puntaje_total,
+      e.umbral_aprobacion,
+      CASE 
+        WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 'APROBADO'
+        ELSE 'REPROBADO'
+      END AS resultado,
+      -- Tiempo utilizado
+      ie.tiempo_utilizado AS tiempo_minutos,
+      FLOOR(ie.tiempo_utilizado / 60) || 'h ' || 
+      MOD(ie.tiempo_utilizado, 60) || 'm' AS tiempo_formato,
+      -- Información de acceso
+      ie.ip_acceso,
+      ie.dispositivo,
+      ie.navegador,
+      -- Datos de localización basados en IP (si están disponibles)
+      ie.ubicacion_ciudad,
+      ie.ubicacion_pais,
+      -- Estadísticas del intento
+      (SELECT COUNT(*) 
+       FROM Respuestas_Estudiantes re 
+       WHERE re.intento_examen_id = ie.intento_examen_id) AS total_preguntas_respondidas,
+      (SELECT COUNT(*) 
+       FROM Respuestas_Estudiantes re 
+       WHERE re.intento_examen_id = ie.intento_examen_id 
+       AND re.es_correcta = 'S') AS preguntas_correctas
+    FROM Intentos_Examen ie
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    JOIN Usuarios u ON ie.estudiante_id = u.usuario_id
+    WHERE (p_examen_id IS NULL OR ie.examen_id = p_examen_id)
+    AND (p_grupo_id IS NULL OR g.grupo_id = p_grupo_id)
+    AND (p_fecha_inicio IS NULL OR TRUNC(ie.fecha_inicio) >= TRUNC(p_fecha_inicio))
+    AND (p_fecha_fin IS NULL OR TRUNC(ie.fecha_inicio) <= TRUNC(p_fecha_fin))
+    ORDER BY ie.fecha_inicio DESC;
+END;
+/
+
+-- Procedimiento para generar reporte de intentos por estudiante específico
+CREATE OR REPLACE PROCEDURE sp_reporte_intentos_estudiante(
+  p_estudiante_id IN NUMBER,
+  p_cursor OUT SYS_REFCURSOR
+) AS
+BEGIN
+  OPEN p_cursor FOR
+    SELECT 
+      ie.intento_examen_id,
+      TO_CHAR(ie.fecha_inicio, 'DD/MM/YYYY HH24:MI:SS') AS fecha_intento,
+      TO_CHAR(ie.fecha_fin, 'DD/MM/YYYY HH24:MI:SS') AS fecha_finalizacion,
+      e.titulo AS titulo_examen,
+      c.nombre AS curso,
+      g.nombre AS grupo,
+      ie.puntaje_total,
+      CASE 
+        WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 'APROBADO'
+        ELSE 'REPROBADO'
+      END AS resultado,
+      ie.tiempo_utilizado AS tiempo_minutos,
+      FLOOR(ie.tiempo_utilizado / 60) || 'h ' || 
+      MOD(ie.tiempo_utilizado, 60) || 'm' AS tiempo_formato,
+      ie.ip_acceso,
+      ie.ubicacion_ciudad || ', ' || ie.ubicacion_pais AS ubicacion,
+      (SELECT COUNT(*) 
+       FROM Respuestas_Estudiantes re 
+       WHERE re.intento_examen_id = ie.intento_examen_id) AS preguntas_respondidas,
+      (SELECT COUNT(*) 
+       FROM Respuestas_Estudiantes re 
+       WHERE re.intento_examen_id = ie.intento_examen_id 
+       AND re.es_correcta = 'S') AS preguntas_correctas
+    FROM Intentos_Examen ie
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    WHERE ie.estudiante_id = p_estudiante_id
+    ORDER BY ie.fecha_inicio DESC;
+END;
+/

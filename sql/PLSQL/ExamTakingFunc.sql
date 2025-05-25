@@ -1,3 +1,11 @@
+-- Create required sequence
+CREATE SEQUENCE SQ_INTENTO_EXAMEN_ID
+START WITH 1
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
+/
+
 -- Función para verificar elegibilidad del estudiante
 CREATE OR REPLACE FUNCTION fn_verificar_elegibilidad(
   p_estudiante_id IN NUMBER,
@@ -469,18 +477,50 @@ CREATE OR REPLACE PROCEDURE sp_calificar_examen_completo(
     v_total_puntos NUMBER := 0;
     v_puntos_posibles NUMBER := 0;
     v_puntaje_final NUMBER;
+    v_examen_id NUMBER;
+    v_total_preguntas NUMBER := 0;
+    v_preguntas_respondidas NUMBER := 0;
+    v_next_id NUMBER;
+    v_es_subpregunta BOOLEAN;
+    v_pregunta_padre_id NUMBER;
 BEGIN
+    -- Obtener el ID del examen
+    SELECT examen_id 
+    INTO v_examen_id
+    FROM Intentos_Examen
+    WHERE intento_examen_id = p_intento_id;
+    
+    -- Obtener número total de preguntas en el examen
+    SELECT COUNT(*)
+    INTO v_total_preguntas
+    FROM Preguntas_Examenes
+    WHERE examen_id = v_examen_id;
+    
+    -- Obtener número de preguntas respondidas
+    SELECT COUNT(DISTINCT pe.pregunta_examen_id)
+    INTO v_preguntas_respondidas
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    WHERE re.intento_examen_id = p_intento_id;
+    
     -- Calificar cada respuesta según el tipo de pregunta
     FOR respuesta IN (
         SELECT 
             re.respuesta_estudiante_id,
-            p.tipo_pregunta_id
+            p.tipo_pregunta_id,
+            p.pregunta_id,
+            p.pregunta_padre_id,
+            pe.pregunta_examen_id
         FROM Respuestas_Estudiantes re
         JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
         JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
         WHERE re.intento_examen_id = p_intento_id
+        ORDER BY pe.orden -- Ordenar para procesar preguntas en el orden correcto
     ) LOOP
-        -- Calificar según el tipo de pregunta
+        -- Verificar si es una subpregunta
+        v_es_subpregunta := (respuesta.pregunta_padre_id IS NOT NULL);
+        
+        -- Calificar según el tipo de pregunta (independientemente si es subpregunta)
         IF respuesta.tipo_pregunta_id = 1 THEN -- Opción múltiple
             v_total_puntos := v_total_puntos + fn_calificar_opcion_multiple(respuesta.respuesta_estudiante_id);
         ELSIF respuesta.tipo_pregunta_id = 2 THEN -- Opción única
@@ -496,12 +536,49 @@ BEGIN
         END IF;
     END LOOP;
     
-    -- Calcular total de puntos posibles
+    -- Insertar respuestas en blanco para preguntas no contestadas
+    FOR pregunta_sin_respuesta IN (
+        SELECT 
+            pe.pregunta_examen_id, 
+            pe.peso, 
+            p.tipo_pregunta_id,
+            p.pregunta_padre_id
+        FROM Preguntas_Examenes pe
+        JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+        WHERE pe.examen_id = v_examen_id
+        AND NOT EXISTS (
+            SELECT 1
+            FROM Respuestas_Estudiantes re
+            WHERE re.pregunta_examen_id = pe.pregunta_examen_id
+            AND re.intento_examen_id = p_intento_id
+        )
+    ) LOOP
+        -- Obtener el siguiente ID para respuestas
+        SELECT NVL(MAX(respuesta_estudiante_id), 0) + 1
+        INTO v_next_id
+        FROM Respuestas_Estudiantes;
+        
+        -- Insertar una respuesta vacía para poder calificarla con cero
+        INSERT INTO Respuestas_Estudiantes (
+            respuesta_estudiante_id,
+            intento_examen_id,
+            pregunta_examen_id,
+            es_correcta,
+            puntaje_obtenido
+        ) VALUES (
+            v_next_id,
+            p_intento_id,
+            pregunta_sin_respuesta.pregunta_examen_id,
+            'N',
+            0
+        );
+    END LOOP;
+    
+    -- Calcular total de puntos posibles (ahora incluye todas las preguntas)
     SELECT SUM(pe.peso)
     INTO v_puntos_posibles
     FROM Preguntas_Examenes pe
-    JOIN Respuestas_Estudiantes re ON pe.pregunta_examen_id = re.pregunta_examen_id
-    WHERE re.intento_examen_id = p_intento_id;
+    WHERE pe.examen_id = v_examen_id;
     
     -- Calcular puntaje final (regla de tres)
     IF v_puntos_posibles > 0 THEN
@@ -520,5 +597,52 @@ BEGIN
     WHERE intento_examen_id = p_intento_id;
     
     COMMIT;
+END;
+/
+
+-- Función auxiliar para calificar preguntas compuestas
+CREATE OR REPLACE FUNCTION fn_calcular_puntaje_compuesto(
+    p_pregunta_id IN NUMBER,
+    p_intento_id IN NUMBER
+) RETURN NUMBER AS
+    v_puntaje_padre NUMBER := 0;
+    v_puntaje_subpreguntas NUMBER := 0;
+    v_total_subpreguntas NUMBER := 0;
+    v_subpreguntas_correctas NUMBER := 0;
+    v_peso_pregunta_padre NUMBER;
+    v_pregunta_examen_id NUMBER;
+BEGIN
+    -- Obtener el peso y ID de la pregunta compuesta
+    SELECT pe.peso, pe.pregunta_examen_id
+    INTO v_peso_pregunta_padre, v_pregunta_examen_id
+    FROM Preguntas_Examenes pe
+    WHERE pe.pregunta_id = p_pregunta_id
+    AND pe.examen_id = (SELECT examen_id FROM Intentos_Examen WHERE intento_examen_id = p_intento_id);
+    
+    -- Contar subpreguntas y cuántas están correctas
+    SELECT COUNT(*), SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END)
+    INTO v_total_subpreguntas, v_subpreguntas_correctas
+    FROM Preguntas p
+    JOIN Preguntas_Examenes pe ON p.pregunta_id = pe.pregunta_id
+    LEFT JOIN Respuestas_Estudiantes re ON pe.pregunta_examen_id = re.pregunta_examen_id AND re.intento_examen_id = p_intento_id
+    WHERE p.pregunta_padre_id = p_pregunta_id;
+    
+    -- Si no hay subpreguntas, retornar 0 (no debería ocurrir)
+    IF v_total_subpreguntas = 0 THEN
+        RETURN 0;
+    END IF;
+    
+    -- Calcular puntaje proporcional basado en subpreguntas correctas
+    v_puntaje_subpreguntas := (v_subpreguntas_correctas / v_total_subpreguntas) * v_peso_pregunta_padre * 0.5;
+    
+    -- Verificar si la pregunta padre fue respondida y si es correcta
+    SELECT CASE WHEN es_correcta = 'S' THEN v_peso_pregunta_padre * 0.5 ELSE 0 END
+    INTO v_puntaje_padre
+    FROM Respuestas_Estudiantes
+    WHERE pregunta_examen_id = v_pregunta_examen_id
+    AND intento_examen_id = p_intento_id;
+    
+    -- Retornar la suma del puntaje de la pregunta padre y sus subpreguntas
+    RETURN v_puntaje_padre + v_puntaje_subpreguntas;
 END;
 /
