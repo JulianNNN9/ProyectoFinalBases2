@@ -1,0 +1,497 @@
+Promedio de calificaciones de exámenes por estudiante y examen
+SELECT 
+    e.nombre, 
+    e.apellido, 
+    ep.fecha_presentacion, 
+    AVG(ep.calificacion) AS promedio_calificacion 
+FROM 
+    estudiantes e 
+JOIN 
+    examen_presentado ep 
+ON 
+    e.usuarios_id_usuario = ep.estudiantes_id_usuario 
+GROUP BY 
+    e.nombre, e.apellido, ep.fecha_presentacion;
+
+
+
+Porcentaje de aprobados por examen
+SELECT * FROM
+(SELECT 
+    nombre, e.tipo_examen,
+    COUNT(calificacion) AS total_estudiantes,
+    COUNT(CASE WHEN calificacion >= umbral_aprobado THEN 1 ELSE NULL END) AS aprobados,
+    (COUNT(CASE WHEN calificacion >= umbral_aprobado THEN 1 ELSE NULL END) / COUNT(calificacion)) * 100 AS porcentaje_aprobados 
+FROM 
+    examenes e 
+JOIN 
+    examen_presentado ep ON e.id_examen = ep.examenes_id_examen 
+GROUP BY 
+    nombre, e.tipo_examen)
+    
+PIVOT
+( 
+    MAX(porcentaje_aprobados) FOR NOMBRE IN ('Parcial de Matemáticas', 'Parcial de Ciecncias naturales')
+);
+
+Promedio de calificaciones por curso
+SELECT c.nombre, AVG(ep.calificacion) AS promedio_calificaciones_curso FROM examen_presentado ep 
+JOIN estudiantes e ON e.usuarios_id_usuario = ep.estudiantes_id_usuario 
+JOIN grupo_curso gc ON e.grupos_id_grupo = gc.grupos_id_grupo 
+JOIN cursos c ON gc.cursos_id_curso = c.id_curso 
+GROUP BY c.nombre
+;
+
+Cantidad de estudiantes por grupo y curso
+SELECT nombre_grupo, nombre_curso, COUNT(*) AS cantidad_estudiantes FROM vista_informacion_estudiante vie 
+GROUP BY nombre_grupo, nombre_curso
+;
+
+
+
+Cantidad de estudiantes reprobados por exámen
+
+WITH examen_reprobados AS (
+    SELECT 
+        e.nombre AS examen,
+        COUNT(*) AS total_estudiantes,
+        SUM(CASE WHEN ep.calificacion < e.umbral_aprobado THEN 1 ELSE 0 END) AS reprobados 
+    FROM 
+        examen_presentado ep 
+    JOIN 
+        examenes e ON ep.examenes_id_examen = e.id_examen 
+    GROUP BY 
+        e.nombre, e.umbral_aprobado
+) 
+SELECT 
+    * 
+FROM 
+    examen_reprobados 
+PIVOT 
+( 
+    SUM(reprobados) 
+    FOR examen IN ('Parcial de Matemáticas', 'Parcial de Ciecncias naturales') 
+);
+MÉTODOS FUNCIONES, PROCEDIMIENTOS Y DISPARADORES IMPLEMENTADOS
+
+NÚMERO FUNCIÓN: 1
+
+
+
+
+--Crea una secuencia que aumenta de 1
+--Inicia en 26 porque 25 es el ultimo dato registrado en la tabla
+CREATE SEQUENCE secuencia_examenes
+START WITH 26
+INCREMENT BY 1
+NOCACHE;
+
+
+
+
+NÚMERO FUNCIÓN: 2
+
+
+
+
+--Ejecutar acciones automáticas al crear un nuevo examen, como asignar ID, establecer estado inicial
+
+CREATE OR REPLACE TRIGGER  TRG_AUTOINCREMENTAR_EXAMENES
+BEFORE INSERT ON C##PROYECTOFINAL.EXAMENES
+FOR EACH ROW
+BEGIN
+    -- Asignar un nuevo ID_EXAMEN automáticamente si es NULL
+    IF :NEW.ID_EXAMEN IS NULL THEN
+        SELECT secuencia_examenes.NEXTVAL INTO :NEW.ID_EXAMEN FROM dual;
+    END IF;
+    
+    -- Establecer el estado inicial del examen si es NULL
+    IF :NEW.ESTADO_PUBLICACION IS NULL THEN
+        :NEW.ESTADO_PUBLICACION := 'No Publicado';
+    END IF;
+END;
+/
+
+
+
+NÚMERO FUNCIÓN: 3
+Profesor no puede añadir más preguntas de las definidas
+
+
+–Verificar que la cantidad total de preguntas en un examen no exceda el límite establecido por el –profesor
+
+CREATE OR REPLACE TRIGGER verificar_limite_preguntas
+BEFORE INSERT ON PREGUNTAS_EXAMEN
+FOR EACH ROW
+DECLARE
+    total_preguntas NUMBER;
+    limite_preguntas NUMBER;
+BEGIN
+    -- Obtener la cantidad total de preguntas asociadas al examen
+    SELECT COUNT(*)
+    INTO total_preguntas
+    FROM PREGUNTAS_EXAMEN
+    WHERE EXAMENES_ID_EXAMEN = :NEW.EXAMENES_ID_EXAMEN;
+
+    -- Obtener el límite de preguntas establecido por el profesor para este examen
+    SELECT CANTIDAD_PREGUNTAS
+    INTO limite_preguntas
+    FROM EXAMENES
+    WHERE ID_EXAMEN = :NEW.EXAMENES_ID_EXAMEN;
+
+    -- Verificar si la cantidad total de preguntas excede el límite
+    IF total_preguntas >= limite_preguntas THEN
+        RAISE_APPLICATION_ERROR(-20002, 'La cantidad total de preguntas excede el límite establecido por el profesor para este examen.');
+    END IF;
+END;
+/
+
+
+
+
+NÚMERO FUNCIÓN: 4
+Llenar todo el examen aleatoriamente
+
+CREATE OR REPLACE TRIGGER TRG_AUTOMATICO_EXAMENES
+AFTER INSERT ON EXAMENES
+FOR EACH ROW
+DECLARE
+    v_preguntas_count NUMBER;
+    v_pregunta_examen_id NUMBER;
+BEGIN
+    -- Verificar si el examen es automático
+    IF :NEW.ES_AUTOMATICO = 1 THEN
+        -- Obtener la cantidad de preguntas disponibles para el contenido del examen
+        SELECT COUNT(*)
+        INTO v_preguntas_count
+        FROM PREGUNTAS
+        WHERE ID_CONTENIDO = :NEW.ID_CONTENIDO
+        AND PRIVACIDAD = 1;
+        -- Verificar si hay suficientes preguntas disponibles
+        IF v_preguntas_count >= :NEW.CANTIDAD_PREGUNTAS THEN
+            -- Obtener el próximo valor de ID_PREGUNTA_EXAMEN
+            SELECT MAX(ID_PREGUNTA_EXAMEN) + 1 INTO v_pregunta_examen_id FROM PREGUNTAS_EXAMEN;
+
+            -- Insertar preguntas en PREGUNTAS_EXAMEN
+            FOR preg IN (
+                SELECT ID_PREGUNTA
+                FROM PREGUNTAS
+                WHERE ID_CONTENIDO = :NEW.ID_CONTENIDO
+                AND PRIVACIDAD = 1
+                AND ROWNUM <= :NEW.CANTIDAD_PREGUNTAS
+            ) LOOP
+                -- Insertar la pregunta en PREGUNTAS_EXAMEN
+                INSERT INTO PREGUNTAS_EXAMEN (EXAMENES_ID_EXAMEN, PREGUNTAS_ID_PREGUNTA, PORCENTAJE_PREGUNTA, ID_PREGUNTA_EXAMEN)
+                VALUES (:NEW.ID_EXAMEN, preg.ID_PREGUNTA, 100 / v_preguntas_count, v_pregunta_examen_id);
+                v_pregunta_examen_id := v_pregunta_examen_id + 1;
+            END LOOP;
+        ELSE
+            -- Si no hay suficientes preguntas disponibles, mostrar un mensaje de error
+          RAISE_APPLICATION_ERROR(-20001, 'No hay suficientes preguntas disponibles para el examen');
+        END IF;
+    END IF;
+END;
+/
+
+INSERT INTO EXAMENES (ID_EXAMEN, NOMBRE, DESCRIPCION, CANTIDAD_PREGUNTAS, DURACION, TIPO_EXAMEN, PORCENTAJE_CURSO, UMBRAL_APROBADO, ESTADO_PUBLICACION, ID_CONTENIDO, PROFESORES_USUARIOS_ID_USUARIO, GRUPOS_ID_GRUPO, CANTIDAD_PREGUNTAS_ESTUDIANTE, ES_AUTOMATICO)
+VALUES (91, 'Examen de Prueba', 'Descripción del examen de prueba', 4, 60, 'Tipo de Examen', 70, 60, 'No Publicado', 1, 1005091535, 1, 0, 0);
+
+
+SELECT * FROM PREGUNTAS_EXAMEN WHERE EXAMENES_ID_EXAMEN = 91;
+
+
+
+NÚMERO FUNCIÓN: 5
+Verificación que no sobrepase la en la que se finaliza el exámen
+
+CREATE OR REPLACE PROCEDURE verificar_horas_entrega (
+    p_fecha_entrega DATE,
+    p_hora_entrega VARCHAR2,
+    p_fecha_finalizacion DATE,
+    p_hora_finalizacion VARCHAR2
+)
+IS
+    v_fecha_entrega DATE;
+    v_fecha_finalizacion DATE;
+BEGIN
+    -- Convertir las cadenas de hora a tipo de dato DATE
+    v_fecha_entrega := TO_DATE(p_fecha_entrega || ' ' || p_hora_entrega, 'DD-MM-YYYY HH24:MI:SS');
+    v_fecha_finalizacion := TO_DATE(p_fecha_finalizacion || ' ' || p_hora_finalizacion, 'DD-MM-YYYY HH24:MI:SS');
+
+    -- Verificar si la hora de entrega es mayor que la hora de finalización
+    IF v_fecha_entrega > v_fecha_finalizacion THEN
+        DBMS_OUTPUT.PUT_LINE('Error: No puedes entregar el exámen superando la hora límite');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Entregado');
+    END IF;
+END;
+
+
+
+
+
+
+
+
+NÚMERO FUNCIÓN: 6
+Agregar subpreguntas aleatoriamente
+
+create or replace PROCEDURE ACTUALIZAR_SUBPREGUNTAS (
+    p_id_pregunta_principal IN PREGUNTAS.ID_PREGUNTA%TYPE,
+    p_cantidad_sub IN preguntas.cantidad_subpreguntas%TYPE
+) AS
+BEGIN
+    IF p_cantidad_sub <> 0 THEN
+        FOR subpregunta IN (
+            SELECT *
+            FROM (
+                SELECT ID_CONTENIDO
+                FROM PREGUNTAS
+                WHERE ID_PREGUNTA = p_id_pregunta_principal
+                AND ROWNUM <= p_cantidad_sub
+            ) subquery
+        )
+        LOOP
+            UPDATE PREGUNTAS
+            SET ID_PREGUNTA_COMPUESTA = p_id_pregunta_principal
+            WHERE ID_CONTENIDO = subpregunta.ID_CONTENIDO AND id_pregunta <> p_id_pregunta_principal;
+        END LOOP;
+    END IF;
+END;
+
+
+
+NÚMERO FUNCIÓN: 7
+No poder editar cuando un exámen está siendo o ya fue presentado 
+
+CREATE OR REPLACE TRIGGER tgr_bloquear_edicion
+BEFORE UPDATE ON EXAMENES
+FOR EACH ROW
+BEGIN
+    IF :OLD.ESTADO_PUBLICACION IN ('Presentando', 'Finalizado', 'Programado') THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ya no puedes editar este exámen');
+    END IF;
+END;
+
+
+
+NÚMERO FUNCIÓN: 8
+Si la hora actual es mayor a la de presentar el examen poner en estado programado
+
+create or replace TRIGGER tgr_activar_examen
+BEFORE INSERT ON HORARIOS
+FOR EACH ROW
+DECLARE 
+    v_fecha_actual TIMESTAMP;
+BEGIN
+    -- Obtener la fecha y hora actuales
+    v_fecha_actual := SYSTIMESTAMP;
+    -- Verificar si la hora de disponibilidad es posterior a la hora actual
+    IF :NEW.hora_inicio > v_fecha_actual THEN
+        -- Si la hora de disponibilidad es en el futuro, establecer el estado del examen como "programado"
+        UPDATE EXAMENES
+        SET ESTADO_PUBLICACION = 'Programado' 
+        WHERE ID_EXAMEN = :NEW.EXAMENES_ID_EXAMEN;
+    ELSE
+         RAISE_APPLICATION_ERROR(-20001, 'No se puede programar una fecha anterior a la actual');
+    END IF;
+END;
+
+
+NÚMERO FUNCIÓN:9
+Funcion para calificar examen de única respuesta y verdadero y falso
+
+set serveroutput on;
+CREATE OR REPLACE FUNCTION CALIFICAR_UNICA_VF (
+    p_id_pregunta IN PREGUNTAS.ID_PREGUNTA%TYPE,
+    p_id_estudiante IN examen_presentado.ESTUDIANTES_ID_USUARIO%TYPE
+) RETURN NUMBER AS
+    v_valor NUMBER := 0;
+    v_opcion_correcta NUMBER;
+    v_opcion_estudiante NUMBER;
+BEGIN
+    BEGIN
+        -- Obtener la opción correcta
+        SELECT ID_OPCION
+        INTO v_opcion_correcta
+        FROM OPCIONES
+        WHERE PREGUNTAS_ID_PREGUNTA = p_id_pregunta
+          AND RESPUESTA = 'Verdadero'
+          AND ROWNUM = 1;  -- Asegurarse de obtener solo una fila
+          
+        DBMS_OUTPUT.PUT_LINE('Opcion correcta ' || v_opcion_correcta);
+ 
+        SELECT e.ID_OPCION INTO v_opcion_estudiante
+        FROM RESPUESTAS_ESTUDIANTE e
+        where e.id_estudiante = p_id_estudiante
+        and e.id_pregunta = p_id_pregunta;
+        DBMS_OUTPUT.PUT_LINE('Opcion estudiante ' || v_opcion_estudiante);
+        -- Comparar y asignar el valor
+        IF v_opcion_correcta = v_opcion_estudiante THEN
+            SELECT VALOR
+            INTO v_valor
+            FROM PREGUNTAS
+            WHERE ID_PREGUNTA = p_id_pregunta;
+        END IF;
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN        
+            v_valor := 0;  -- No se encontró una opción correcta o respuesta del estudiante
+        WHEN TOO_MANY_ROWS THEN
+            v_valor := 0;  -- Manejar el caso en que se encontraron múltiples filas
+    END;
+    RETURN v_valor;
+END;
+/
+
+NÚMERO FUNCIÓN: 10
+Función para calificar examen de múltiple respuesta 
+
+CREATE OR REPLACE FUNCTION CALIFICAR_MULTIPLE_RESPUESTA (
+    p_id_pregunta IN PREGUNTAS.ID_PREGUNTA%TYPE,
+    p_id_estudiante IN EXAMEN_PRESENTADO.ESTUDIANTES_ID_USUARIO%TYPE
+) RETURN NUMBER AS
+    v_valor NUMBER := 0;
+    v_correcto BOOLEAN := TRUE;
+    v_temp NUMBER; -- Variable temporal para verificar existencia de respuestas
+BEGIN
+    -- Obtener las opciones correctas
+    FOR rec_correcta IN (
+        SELECT ID_OPCION
+        FROM OPCIONES
+        WHERE PREGUNTAS_ID_PREGUNTA = p_id_pregunta
+          AND RESPUESTA = 'Verdadero'
+    ) LOOP
+        -- Verificar si cada opción correcta tiene una respuesta del estudiante
+        BEGIN
+            SELECT 1
+            INTO v_temp
+            FROM RESPUESTAS_ESTUDIANTE e
+            WHERE e.ID_ESTUDIANTE = p_id_estudiante
+              AND e.ID_PREGUNTA = p_id_pregunta
+              AND e.ID_OPCION = rec_correcta.ID_OPCION;
+
+        EXCEPTION WHEN NO_DATA_FOUND THEN
+            v_correcto := FALSE;
+        END;
+        
+        -- Si alguna opción correcta no tiene respuesta del estudiante, marcar incorrecto
+        IF v_correcto = FALSE THEN
+            EXIT;
+        END IF;
+    END LOOP;
+    IF v_correcto THEN
+        SELECT VALOR
+        INTO v_valor
+        FROM PREGUNTAS
+        WHERE ID_PREGUNTA = p_id_pregunta;
+    END IF;
+
+    RETURN v_valor;
+END;
+
+
+NÚMERO TRGGER: 11
+Trigger que añade la cantidad de preguntas para el estudiante aleatoriamente para responder el examen 
+
+create or replace TRIGGER trg_automatico_preguntas_estudiante AFTER
+    INSERT ON examen_presentado
+    FOR EACH ROW
+DECLARE
+    v_preguntas_count               NUMBER;
+    v_pregunta_estudiante_id            NUMBER;
+    v_cantidad_preguntas_estudiante NUMBER;
+BEGIN
+    -- Obtener la cantidad de preguntas del estudiante
+    SELECT cantidad_preguntas_estudiante
+    INTO v_cantidad_preguntas_estudiante
+    FROM examenes
+    WHERE id_examen = :new.examenes_id_examen;
+
+    -- Obtener la cantidad de preguntas disponibles para ese examen
+    SELECT COUNT(*) 
+    INTO v_preguntas_count
+    FROM PREGUNTAS_EXAMEN
+    WHERE examenes_id_examen = :new.examenes_id_examen;
+
+    -- Verificar si hay suficientes preguntas disponibles
+    IF v_preguntas_count >= v_cantidad_preguntas_estudiante THEN
+            -- Obtener el próximo valor de ID_PREGUNTA_EXAMEN
+        SELECT
+            MAX(id_pregunta_estudiante) + 1
+        INTO v_pregunta_estudiante_id
+        FROM
+            preguntas_estudiante;
+
+            -- Insertar preguntas en PREGUNTAS_EXAMEN
+        FOR preg IN (
+            SELECT id_pregunta_examen
+            FROM preguntas_examen
+            WHERE examenes_id_examen = 47
+            ORDER BY DBMS_RANDOM.VALUE
+            FETCH FIRST v_cantidad_preguntas_estudiante ROWS ONLY
+        ) LOOP
+                -- Insertar la pregunta en PREGUNTAS_EXAMEN
+            INSERT INTO preguntas_estudiante (
+                id_pregunta_estudiante,
+                id_presentacion,
+                id_pregunta_examen
+            ) VALUES (
+                v_pregunta_estudiante_id,
+                :NEW.id_presentacion,
+                preg.id_pregunta_examen
+            );
+
+            v_pregunta_estudiante_id := v_pregunta_estudiante_id + 1;
+        END LOOP;
+
+    ELSE
+            -- Si no hay suficientes preguntas disponibles, mostrar un mensaje de error
+        raise_application_error(-20001, 'No hay suficientes preguntas disponibles para responder el examen');
+    END IF;
+
+END;
+
+
+
+NÚMERO Funcion 12
+Calificar pregunta compuesta
+
+
+CREATE OR REPLACE FUNCTION CALIFICAR_PREGUNTA_COMPUESTA (
+    p_id_pregunta IN PREGUNTAS.ID_PREGUNTA%TYPE,
+    p_id_estudiante IN EXAMEN_PRESENTADO.ESTUDIANTES_ID_USUARIO%TYPE
+) RETURN NUMBER AS
+    v_valor_total NUMBER := 0;
+    v_valor_subpregunta NUMBER := 0;
+BEGIN
+    -- Recorrer cada subpregunta de la pregunta compuesta
+    FOR rec_subpregunta IN (
+        SELECT ID_PREGUNTA, ID_TIPO_PREGUNTA, VALOR
+        FROM PREGUNTAS
+        WHERE ID_PREGUNTA_COMPUESTA = p_id_pregunta
+    ) LOOP
+        -- Calificar según el tipo de subpregunta
+        IF rec_subpregunta.ID_TIPO_PREGUNTA = 1 THEN
+            v_valor_subpregunta := CALIFICAR_MULTIPLE_RESPUESTA(rec_subpregunta.ID_PREGUNTA, p_id_estudiante);
+        ELSIF rec_subpregunta.ID_TIPO_PREGUNTA = 2 THEN
+            v_valor_subpregunta := CALIFICAR_UNICA_VF(rec_subpregunta.ID_PREGUNTA, p_id_estudiante);
+        ELSIF rec_subpregunta.ID_TIPO_PREGUNTA = 3 THEN
+            v_valor_subpregunta := CALIFICAR_UNICA_VF(rec_subpregunta.ID_PREGUNTA, p_id_estudiante);
+        END IF;
+
+
+        -- Si alguna subpregunta es incorrecta, la pregunta compuesta es incorrecta
+        IF v_valor_subpregunta = 0 THEN
+            RETURN 0;
+        END IF;
+
+
+        -- Sumar el valor de la subpregunta a la calificación total
+        v_valor_total := v_valor_total + rec_subpregunta.VALOR;
+    END LOOP;
+
+
+    -- Devolver el valor total de la pregunta compuesta
+    RETURN v_valor_total;
+END;
