@@ -601,7 +601,6 @@ END sp_agregar_pregunta_examen;
 create or replace NONEDITIONABLE PROCEDURE sp_presentar_examen_estudiante (
     p_estudiante_id     IN NUMBER,
     p_examen_id         IN NUMBER,
-    p_direccion_ip      IN VARCHAR2,
     p_respuestas        IN SYS_REFCURSOR, -- Cursor con las respuestas del estudiante
     p_resultado         OUT VARCHAR2
 ) IS
@@ -623,8 +622,8 @@ BEGIN
     -- 2. Registrar intento del examen
     SELECT SQ_INTENTO_EXAMEN_ID.NEXTVAL INTO v_intento_id FROM DUAL;
 
-    INSERT INTO Intentos_Examen (intento_examen_id, estudiante_id, examen_id, fecha_inicio, direccion_ip)
-    VALUES (v_intento_id, p_estudiante_id, p_examen_id, v_fecha_inicio, p_direccion_ip);
+    INSERT INTO Intentos_Examen (intento_examen_id, estudiante_id, examen_id, fecha_inicio)
+    VALUES (v_intento_id, p_estudiante_id, p_examen_id, v_fecha_inicio);
 
     -- 3. Procesar respuestas desde el cursor
     LOOP
@@ -642,10 +641,9 @@ BEGIN
 
             -- Insertar detalles de la respuesta según tipo (simplificado)
             IF v_tipo_pregunta_id = 1 THEN -- OPCION_MULTIPLE
-                -- Parsear y registrar múltiples opciones (usar delimitadores si es texto largo)
                 NULL; -- Implementar según estructura de tabla
             ELSIF v_tipo_pregunta_id = 2 THEN -- OPCION_UNICA
-                NULL; -- Similar, insertar una única opción
+                NULL;
             ELSIF v_tipo_pregunta_id = 3 THEN -- VERDADERO_FALSO
                 NULL;
             ELSIF v_tipo_pregunta_id = 4 THEN -- ORDENAR
@@ -655,7 +653,6 @@ BEGIN
             ELSIF v_tipo_pregunta_id = 6 THEN -- COMPLETAR
                 NULL;
             END IF;
-
         END;
     END LOOP;
 
@@ -672,8 +669,7 @@ BEGIN
     -- 5. Calificar el examen completo
     sp_calificar_examen_completo(v_intento_id);
 
-
-    -- 6. Notificar resultado al estudiante (por ejemplo, con un trigger o log)
+    -- 6. Notificar resultado al estudiante
     p_resultado := 'EXAMEN FINALIZADO Y CALIFICADO CORRECTAMENTE.';
 
     COMMIT;
