@@ -1,0 +1,894 @@
+-- Generado por Oracle SQL Developer Data Modeler 24.3.0.240.1210
+--   en:        2025-05-25 12:23:25 COT
+--   sitio:      Oracle Database 11g
+--   tipo:      Oracle Database 11g
+
+
+
+-- predefined type, no DDL - MDSYS.SDO_GEOMETRY
+
+-- predefined type, no DDL - XMLTYPE
+
+CREATE TABLE completar_espacios (
+    completar_espacio_id  NUMBER NOT NULL,
+    numero_espacio        NUMBER NOT NULL,
+    texto_correcto        VARCHAR2(255) NOT NULL,
+    completar_pregunta_id NUMBER NOT NULL
+);
+
+ALTER TABLE completar_espacios ADD CONSTRAINT completar_espacios_pk PRIMARY KEY ( completar_espacio_id );
+
+CREATE TABLE completar_preguntas (
+    completar_pregunta_id NUMBER NOT NULL,
+    texto_con_espacios    CLOB NOT NULL,
+    pregunta_id           NUMBER NOT NULL
+);
+
+ALTER TABLE completar_preguntas ADD CONSTRAINT completar_preguntas_pk PRIMARY KEY ( completar_pregunta_id );
+
+CREATE TABLE cursos (
+    curso_id    NUMBER NOT NULL,
+    nombre      VARCHAR2(50) NOT NULL,
+    descripcion CLOB,
+    activo      CHAR(1) NOT NULL
+);
+
+ALTER TABLE cursos ADD CONSTRAINT cursos_pk PRIMARY KEY ( curso_id );
+
+CREATE TABLE emparejamiento_preguntas (
+    emparejamiento_pregunta_id NUMBER NOT NULL,
+    opcion_a                   VARCHAR2(255) NOT NULL,
+    opcion_b                   VARCHAR2(255) NOT NULL,
+    pregunta_id                NUMBER NOT NULL
+);
+
+ALTER TABLE emparejamiento_preguntas ADD CONSTRAINT emparejamiento_preguntas_pk PRIMARY KEY ( emparejamiento_pregunta_id );
+
+CREATE TABLE estado_accion (
+    estado_accion_id NUMBER NOT NULL,
+    descripcion      VARCHAR2(30) NOT NULL
+);
+
+ALTER TABLE estado_accion
+    ADD CHECK ( descripcion IN ( 'EXITOSO', 'FALLIDO' ) );
+
+ALTER TABLE estado_accion ADD CONSTRAINT estado_accion_pk PRIMARY KEY ( estado_accion_id );
+
+CREATE TABLE examenes (
+    examen_id                  NUMBER NOT NULL,
+    descripcion                CLOB,
+    fecha_creacion             TIMESTAMP NOT NULL,
+    fecha_disponible           TIMESTAMP,
+    fecha_limite               TIMESTAMP,
+    tiempo_limite              NUMBER,
+    peso                       NUMBER(5, 2),
+    umbral_aprobacion          NUMBER(5, 2),
+    cantidad_preguntas_mostrar NUMBER,
+    aleatorizar_preguntas      CHAR(1),
+    creador_id                 NUMBER NOT NULL,
+    grupo_id                   NUMBER NOT NULL
+);
+
+ALTER TABLE examenes ADD CONSTRAINT examenes_pk PRIMARY KEY ( examen_id );
+
+CREATE TABLE grupos (
+    grupo_id    NUMBER NOT NULL,
+    nombre      VARCHAR2(50) NOT NULL,
+    lugar       VARCHAR2(200),
+    horario     VARCHAR2(200),
+    profesor_id NUMBER NOT NULL,
+    curso_id    NUMBER NOT NULL
+);
+
+ALTER TABLE grupos ADD CONSTRAINT grupos_pk PRIMARY KEY ( grupo_id );
+
+CREATE TABLE inscripciones (
+    inscripcion_id    NUMBER NOT NULL,
+    fecha_inscripcion TIMESTAMP NOT NULL,
+    grupo_id          NUMBER NOT NULL,
+    estudiante_id     NUMBER NOT NULL
+);
+
+ALTER TABLE inscripciones ADD CONSTRAINT inscripciones_pk PRIMARY KEY ( inscripcion_id );
+
+CREATE TABLE intentos_examen (
+    intento_examen_id NUMBER NOT NULL,
+    fecha_inicio      TIMESTAMP NOT NULL,
+    fecha_fin         TIMESTAMP NOT NULL,
+    tiempo_utilizado  NUMBER NOT NULL,
+    puntaje_total     NUMBER(5, 2),
+    ip_address        VARCHAR2(30) NOT NULL,
+    estudiante_id     NUMBER NOT NULL,
+    examen_id         NUMBER NOT NULL
+);
+
+ALTER TABLE intentos_examen ADD CONSTRAINT intentos_examen_pk PRIMARY KEY ( intento_examen_id );
+
+CREATE TABLE logs_actividad (
+    log_actividad_id NUMBER NOT NULL,
+    fecha            TIMESTAMP NOT NULL,
+    ip_address       VARCHAR2(30) NOT NULL,
+    tipo_accion_id   NUMBER NOT NULL,
+    usuario_id       NUMBER NOT NULL,
+    estado_accion_id NUMBER NOT NULL
+);
+
+ALTER TABLE logs_actividad ADD CONSTRAINT logs_actividad_pk PRIMARY KEY ( log_actividad_id );
+
+CREATE TABLE opciones_preguntas (
+    opcion_pregunta_id NUMBER NOT NULL,
+    texto              CLOB NOT NULL,
+    es_correcta        CHAR(1) NOT NULL,
+    orden              NUMBER,
+    pregunta_id        NUMBER NOT NULL
+);
+
+ALTER TABLE opciones_preguntas ADD CONSTRAINT opciones_preguntas_pk PRIMARY KEY ( opcion_pregunta_id );
+
+CREATE TABLE orden_preguntas (
+    orden_pregunta_id NUMBER NOT NULL,
+    texto             VARCHAR2(255) NOT NULL,
+    posicion_correcta NUMBER NOT NULL,
+    pregunta_id       NUMBER NOT NULL
+);
+
+ALTER TABLE orden_preguntas ADD CONSTRAINT orden_preguntas_pk PRIMARY KEY ( orden_pregunta_id );
+
+CREATE TABLE preguntas (
+    pregunta_id       NUMBER NOT NULL,
+    texto             CLOB NOT NULL,
+    fecha_creacion    TIMESTAMP NOT NULL,
+    es_publica        CHAR(1) NOT NULL,
+    tiempo_maximo     NUMBER,
+    pregunta_padre_id NUMBER,
+    tipo_pregunta_id  NUMBER NOT NULL,
+    creador_id        NUMBER NOT NULL,
+    tema_id           NUMBER NOT NULL
+);
+
+ALTER TABLE preguntas ADD CONSTRAINT preguntas_pk PRIMARY KEY ( pregunta_id );
+
+CREATE TABLE preguntas_examenes (
+    pregunta_examen_id NUMBER NOT NULL,
+    peso               NUMBER(5, 2),
+    orden              NUMBER,
+    pregunta_id        NUMBER NOT NULL,
+    examen_id          NUMBER NOT NULL
+);
+
+ALTER TABLE preguntas_examenes ADD CONSTRAINT preguntas_examenes_pk PRIMARY KEY ( pregunta_examen_id );
+
+CREATE TABLE respuestas_completar (
+    respuesta_completar_id  NUMBER NOT NULL,
+    numero_espacio          NUMBER NOT NULL,
+    texto_ingresado         VARCHAR2(255) NOT NULL,
+    completar_espacio_id    NUMBER NOT NULL,
+    respuesta_estudiante_id NUMBER NOT NULL
+);
+
+ALTER TABLE respuestas_completar ADD CONSTRAINT respuestas_completar_pk PRIMARY KEY ( respuesta_completar_id );
+
+CREATE TABLE respuestas_emparejamiento (
+    respuesta_emparejamiento_id NUMBER NOT NULL,
+    opcion_a                    VARCHAR2(255) NOT NULL,
+    opcion_b                    VARCHAR2(255) NOT NULL,
+    respuesta_estudiante_id     NUMBER NOT NULL,
+    emparejamiento_pregunta_id  NUMBER NOT NULL
+);
+
+ALTER TABLE respuestas_emparejamiento ADD CONSTRAINT respuestas_emparejamiento_pk PRIMARY KEY ( respuesta_emparejamiento_id );
+
+CREATE TABLE respuestas_estudiantes (
+    respuesta_estudiante_id NUMBER NOT NULL,
+    es_correcta             CHAR(1),
+    puntaje_obtenido        NUMBER(5, 2),
+    intento_examen_id       NUMBER NOT NULL,
+    pregunta_examen_id      NUMBER NOT NULL
+);
+
+ALTER TABLE respuestas_estudiantes ADD CONSTRAINT respuestas_estudiantes_pk PRIMARY KEY ( respuesta_estudiante_id );
+
+CREATE TABLE respuestas_opciones (
+    respuesta_opcion_id     NUMBER NOT NULL,
+    respuesta_estudiante_id NUMBER NOT NULL,
+    opcion_pregunta_id      NUMBER NOT NULL
+);
+
+ALTER TABLE respuestas_opciones ADD CONSTRAINT respuestas_opciones_pk PRIMARY KEY ( respuesta_opcion_id );
+
+CREATE TABLE respuestas_orden (
+    respuesta_orden_id      NUMBER NOT NULL,
+    texto                   CLOB NOT NULL,
+    posicion_estudiante     NUMBER NOT NULL,
+    orden_pregunta_id       NUMBER NOT NULL,
+    respuesta_estudiante_id NUMBER NOT NULL
+);
+
+ALTER TABLE respuestas_orden ADD CONSTRAINT respuestas_orden_pk PRIMARY KEY ( respuesta_orden_id );
+
+CREATE TABLE temas (
+    tema_id     NUMBER NOT NULL,
+    nombre      VARCHAR2(50) NOT NULL,
+    descripcion CLOB,
+    orden       NUMBER
+);
+
+ALTER TABLE temas ADD CONSTRAINT temas_pk PRIMARY KEY ( tema_id );
+
+CREATE TABLE tipo_accion (
+    tipo_accion_id NUMBER NOT NULL,
+    descripcion    VARCHAR2(30) NOT NULL
+);
+
+ALTER TABLE tipo_accion
+    ADD CHECK ( descripcion IN ( 'ENTRADA', 'SALIDA' ) );
+
+ALTER TABLE tipo_accion ADD CONSTRAINT tipo_accion_pk PRIMARY KEY ( tipo_accion_id );
+
+CREATE TABLE tipo_preguntas (
+    tipo_pregunta_id NUMBER NOT NULL,
+    descripcion      VARCHAR2(30) NOT NULL
+);
+
+ALTER TABLE tipo_preguntas
+    ADD
+        CHECK ( descripcion IN ( 'COMPLETAR', 'EMPAREJAR', 'OPCION_MULTIPLE', 'OPCION_UNICA', 'ORDENAR',
+                                 'VERDADERO_FALSO' ) );
+
+ALTER TABLE tipo_preguntas ADD CONSTRAINT tipo_preguntas_pk PRIMARY KEY ( tipo_pregunta_id );
+
+CREATE TABLE tipo_usuario (
+    usuario_id  NUMBER NOT NULL,
+    descripcion VARCHAR2(30) NOT NULL
+);
+
+ALTER TABLE tipo_usuario
+    ADD CHECK ( descripcion IN ( 'ESTUDIANTE', 'PROFESOR' ) );
+
+ALTER TABLE tipo_usuario ADD CONSTRAINT tipo_usuario_pk PRIMARY KEY ( usuario_id );
+
+CREATE TABLE unidades (
+    unidad_id   NUMBER NOT NULL,
+    nombre      VARCHAR2(50) NOT NULL,
+    descripcion CLOB,
+    orden       NUMBER,
+    curso_id    NUMBER NOT NULL
+);
+
+ALTER TABLE unidades ADD CONSTRAINT unidades_pk PRIMARY KEY ( unidad_id );
+
+CREATE TABLE unidades_temas (
+    unidad_id NUMBER NOT NULL,
+    tema_id   NUMBER NOT NULL,
+    orden     NUMBER NOT NULL
+);
+
+ALTER TABLE unidades_temas ADD CONSTRAINT unidades_temas_pk PRIMARY KEY ( unidad_id,
+                                                                          tema_id );
+
+CREATE TABLE usuarios (
+    usuario_id      NUMBER NOT NULL,
+    nombre          VARCHAR2(30) NOT NULL,
+    apellido        VARCHAR2(50) NOT NULL,
+    email           VARCHAR2(50) NOT NULL,
+    contrasenia     VARCHAR2(30) NOT NULL,
+    fecha_registro  TIMESTAMP NOT NULL,
+    activo          CHAR(1) NOT NULL,
+    tipo_usuario_id NUMBER NOT NULL
+);
+
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_pk PRIMARY KEY ( usuario_id );
+
+ALTER TABLE completar_preguntas
+    ADD CONSTRAINT com_preg_preguntas_fk FOREIGN KEY ( pregunta_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE completar_espacios
+    ADD CONSTRAINT comp_esp_comp_preguntas_fk FOREIGN KEY ( completar_pregunta_id )
+        REFERENCES completar_preguntas ( completar_pregunta_id );
+
+ALTER TABLE emparejamiento_preguntas
+    ADD CONSTRAINT empar_preg_preguntas_fk FOREIGN KEY ( pregunta_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE examenes
+    ADD CONSTRAINT examenes_grupos_fk FOREIGN KEY ( grupo_id )
+        REFERENCES grupos ( grupo_id );
+
+ALTER TABLE examenes
+    ADD CONSTRAINT examenes_usuarios_fk FOREIGN KEY ( creador_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE grupos
+    ADD CONSTRAINT grupos_cursos_fk FOREIGN KEY ( curso_id )
+        REFERENCES cursos ( curso_id );
+
+ALTER TABLE grupos
+    ADD CONSTRAINT grupos_usuarios_fk FOREIGN KEY ( profesor_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE inscripciones
+    ADD CONSTRAINT inscripciones_grupos_fk FOREIGN KEY ( grupo_id )
+        REFERENCES grupos ( grupo_id );
+
+ALTER TABLE inscripciones
+    ADD CONSTRAINT inscripciones_usuarios_fk FOREIGN KEY ( estudiante_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE intentos_examen
+    ADD CONSTRAINT intentos_examen_examenes_fk FOREIGN KEY ( examen_id )
+        REFERENCES examenes ( examen_id );
+
+ALTER TABLE intentos_examen
+    ADD CONSTRAINT intentos_examen_usuarios_fk FOREIGN KEY ( estudiante_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE logs_actividad
+    ADD CONSTRAINT logs_act_estado_accion_fk FOREIGN KEY ( estado_accion_id )
+        REFERENCES estado_accion ( estado_accion_id );
+
+ALTER TABLE logs_actividad
+    ADD CONSTRAINT logs_act_tipo_accion_fk FOREIGN KEY ( tipo_accion_id )
+        REFERENCES tipo_accion ( tipo_accion_id );
+
+ALTER TABLE logs_actividad
+    ADD CONSTRAINT logs_act_usuarios_fk FOREIGN KEY ( usuario_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE opciones_preguntas
+    ADD CONSTRAINT opc_preg_preguntas_fk FOREIGN KEY ( pregunta_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE orden_preguntas
+    ADD CONSTRAINT orden_preg_preguntas_fk FOREIGN KEY ( pregunta_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE preguntas_examenes
+    ADD CONSTRAINT preg_ex_examenes_fk FOREIGN KEY ( examen_id )
+        REFERENCES examenes ( examen_id );
+
+ALTER TABLE preguntas_examenes
+    ADD CONSTRAINT preg_ex_preguntas_fk FOREIGN KEY ( pregunta_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE preguntas
+    ADD CONSTRAINT preguntas_preguntas_fk FOREIGN KEY ( pregunta_padre_id )
+        REFERENCES preguntas ( pregunta_id );
+
+ALTER TABLE preguntas
+    ADD CONSTRAINT preguntas_temas_fk FOREIGN KEY ( tema_id )
+        REFERENCES temas ( tema_id );
+
+ALTER TABLE preguntas
+    ADD CONSTRAINT preguntas_tipo_preguntas_fk FOREIGN KEY ( tipo_pregunta_id )
+        REFERENCES tipo_preguntas ( tipo_pregunta_id );
+
+ALTER TABLE preguntas
+    ADD CONSTRAINT preguntas_usuarios_fk FOREIGN KEY ( creador_id )
+        REFERENCES usuarios ( usuario_id );
+
+ALTER TABLE respuestas_completar
+    ADD CONSTRAINT resp_comp_comp_espacios_fk FOREIGN KEY ( completar_espacio_id )
+        REFERENCES completar_espacios ( completar_espacio_id );
+
+ALTER TABLE respuestas_completar
+    ADD CONSTRAINT resp_comp_resp_estudiantes_fk FOREIGN KEY ( respuesta_estudiante_id )
+        REFERENCES respuestas_estudiantes ( respuesta_estudiante_id );
+
+ALTER TABLE respuestas_emparejamiento
+    ADD CONSTRAINT resp_emp_emp_preg_fk FOREIGN KEY ( emparejamiento_pregunta_id )
+        REFERENCES emparejamiento_preguntas ( emparejamiento_pregunta_id );
+
+ALTER TABLE respuestas_emparejamiento
+    ADD CONSTRAINT resp_emp_resp_est_fk FOREIGN KEY ( respuesta_estudiante_id )
+        REFERENCES respuestas_estudiantes ( respuesta_estudiante_id );
+
+ALTER TABLE respuestas_estudiantes
+    ADD CONSTRAINT resp_est_intentos_examen_fk FOREIGN KEY ( intento_examen_id )
+        REFERENCES intentos_examen ( intento_examen_id );
+
+ALTER TABLE respuestas_estudiantes
+    ADD CONSTRAINT resp_est_preg_examenes_fk FOREIGN KEY ( pregunta_examen_id )
+        REFERENCES preguntas_examenes ( pregunta_examen_id );
+
+ALTER TABLE respuestas_opciones
+    ADD CONSTRAINT resp_opc_opc_preguntas_fk FOREIGN KEY ( opcion_pregunta_id )
+        REFERENCES opciones_preguntas ( opcion_pregunta_id );
+
+ALTER TABLE respuestas_opciones
+    ADD CONSTRAINT resp_opc_resp_estudiantes_fk FOREIGN KEY ( respuesta_estudiante_id )
+        REFERENCES respuestas_estudiantes ( respuesta_estudiante_id );
+
+ALTER TABLE respuestas_orden
+    ADD CONSTRAINT resp_ord_ord_preguntas_fk FOREIGN KEY ( orden_pregunta_id )
+        REFERENCES orden_preguntas ( orden_pregunta_id );
+
+ALTER TABLE respuestas_orden
+    ADD CONSTRAINT resp_ord_res_estudiantes_fk FOREIGN KEY ( respuesta_estudiante_id )
+        REFERENCES respuestas_estudiantes ( respuesta_estudiante_id );
+
+ALTER TABLE unidades
+    ADD CONSTRAINT unidades_cursos_fk FOREIGN KEY ( curso_id )
+        REFERENCES cursos ( curso_id );
+
+ALTER TABLE unidades_temas
+    ADD CONSTRAINT unidades_temas_temas_fk FOREIGN KEY ( tema_id )
+        REFERENCES temas ( tema_id );
+
+ALTER TABLE unidades_temas
+    ADD CONSTRAINT unidades_temas_unidades_fk FOREIGN KEY ( unidad_id )
+        REFERENCES unidades ( unidad_id );
+
+ALTER TABLE usuarios
+    ADD CONSTRAINT usuarios_tipo_usuario_fk FOREIGN KEY ( tipo_usuario_id )
+        REFERENCES tipo_usuario ( usuario_id );
+
+
+
+-- Informe de Resumen de Oracle SQL Developer Data Modeler: 
+-- 
+-- CREATE TABLE                            26
+-- CREATE INDEX                             0
+-- ALTER TABLE                             66
+-- CREATE VIEW                              0
+-- ALTER VIEW                               0
+-- CREATE PACKAGE                           0
+-- CREATE PACKAGE BODY                      0
+-- CREATE PROCEDURE                         0
+-- CREATE FUNCTION                          0
+-- CREATE TRIGGER                           0
+-- ALTER TRIGGER                            0
+-- CREATE COLLECTION TYPE                   0
+-- CREATE STRUCTURED TYPE                   0
+-- CREATE STRUCTURED TYPE BODY              0
+-- CREATE CLUSTER                           0
+-- CREATE CONTEXT                           0
+-- CREATE DATABASE                          0
+-- CREATE DIMENSION                         0
+-- CREATE DIRECTORY                         0
+-- CREATE DISK GROUP                        0
+-- CREATE ROLE                              0
+-- CREATE ROLLBACK SEGMENT                  0
+-- CREATE SEQUENCE                          0
+-- CREATE MATERIALIZED VIEW                 0
+-- CREATE MATERIALIZED VIEW LOG             0
+-- CREATE SYNONYM                           0
+-- CREATE TABLESPACE                        0
+-- CREATE USER                              0
+-- 
+-- DROP TABLESPACE                          0
+-- DROP DATABASE                            0
+-- 
+-- REDACTION POLICY                         0
+-- 
+-- ORDS DROP SCHEMA                         0
+-- ORDS ENABLE SCHEMA                       0
+-- ORDS ENABLE OBJECT                       0
+-- 
+-- ERRORS                                   0
+-- WARNINGS                                 0
+
+
+
+-- ==============================================
+-- Secuencias
+-- ==============================================
+CREATE SEQUENCE seq_completar_espacios START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_completar_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_cursos START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_emparejamiento_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_estado_accion START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_examenes START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_grupos START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_inscripciones START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_intentos_examen START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_logs_actividad START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_opciones_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_orden_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_preguntas_examenes START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_respuestas_completar START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_respuestas_emparejamiento START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_respuestas_estudiantes START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_respuestas_opciones START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_respuestas_orden START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_temas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_tipo_accion START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_tipo_preguntas START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_tipo_usuario START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_unidades START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_usuarios START WITH 1 INCREMENT BY 1 NOCACHE;
+
+-- ==============================================
+-- Triggers “BEFORE INSERT” para PK automáticas
+-- ==============================================
+CREATE OR REPLACE TRIGGER trg_bi_completar_espacios
+BEFORE INSERT ON completar_espacios
+FOR EACH ROW
+BEGIN
+  IF :NEW.completar_espacio_id IS NULL THEN
+    SELECT seq_completar_espacios.NEXTVAL INTO :NEW.completar_espacio_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_completar_preguntas
+BEFORE INSERT ON completar_preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.completar_pregunta_id IS NULL THEN
+    SELECT seq_completar_preguntas.NEXTVAL INTO :NEW.completar_pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_cursos
+BEFORE INSERT ON cursos
+FOR EACH ROW
+BEGIN
+  IF :NEW.curso_id IS NULL THEN
+    SELECT seq_cursos.NEXTVAL INTO :NEW.curso_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_emparejamiento_preguntas
+BEFORE INSERT ON emparejamiento_preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.emparejamiento_pregunta_id IS NULL THEN
+    SELECT seq_emparejamiento_preguntas.NEXTVAL INTO :NEW.emparejamiento_pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_estado_accion
+BEFORE INSERT ON estado_accion
+FOR EACH ROW
+BEGIN
+  IF :NEW.estado_accion_id IS NULL THEN
+    SELECT seq_estado_accion.NEXTVAL INTO :NEW.estado_accion_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_examenes
+BEFORE INSERT ON examenes
+FOR EACH ROW
+BEGIN
+  IF :NEW.examen_id IS NULL THEN
+    SELECT seq_examenes.NEXTVAL INTO :NEW.examen_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_grupos
+BEFORE INSERT ON grupos
+FOR EACH ROW
+BEGIN
+  IF :NEW.grupo_id IS NULL THEN
+    SELECT seq_grupos.NEXTVAL INTO :NEW.grupo_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_inscripciones
+BEFORE INSERT ON inscripciones
+FOR EACH ROW
+BEGIN
+  IF :NEW.inscripcion_id IS NULL THEN
+    SELECT seq_inscripciones.NEXTVAL INTO :NEW.inscripcion_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_intentos_examen
+BEFORE INSERT ON intentos_examen
+FOR EACH ROW
+BEGIN
+  IF :NEW.intento_examen_id IS NULL THEN
+    SELECT seq_intentos_examen.NEXTVAL INTO :NEW.intento_examen_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_logs_actividad
+BEFORE INSERT ON logs_actividad
+FOR EACH ROW
+BEGIN
+  IF :NEW.log_actividad_id IS NULL THEN
+    SELECT seq_logs_actividad.NEXTVAL INTO :NEW.log_actividad_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_opciones_preguntas
+BEFORE INSERT ON opciones_preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.opcion_pregunta_id IS NULL THEN
+    SELECT seq_opciones_preguntas.NEXTVAL INTO :NEW.opcion_pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_orden_preguntas
+BEFORE INSERT ON orden_preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.orden_pregunta_id IS NULL THEN
+    SELECT seq_orden_preguntas.NEXTVAL INTO :NEW.orden_pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_preguntas
+BEFORE INSERT ON preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.pregunta_id IS NULL THEN
+    SELECT seq_preguntas.NEXTVAL INTO :NEW.pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_preguntas_examenes
+BEFORE INSERT ON preguntas_examenes
+FOR EACH ROW
+BEGIN
+  IF :NEW.pregunta_examen_id IS NULL THEN
+    SELECT seq_preguntas_examenes.NEXTVAL INTO :NEW.pregunta_examen_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_respuestas_completar
+BEFORE INSERT ON respuestas_completar
+FOR EACH ROW
+BEGIN
+  IF :NEW.respuesta_completar_id IS NULL THEN
+    SELECT seq_respuestas_completar.NEXTVAL INTO :NEW.respuesta_completar_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_respuestas_emparejamiento
+BEFORE INSERT ON respuestas_emparejamiento
+FOR EACH ROW
+BEGIN
+  IF :NEW.respuesta_emparejamiento_id IS NULL THEN
+    SELECT seq_respuestas_emparejamiento.NEXTVAL INTO :NEW.respuesta_emparejamiento_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_respuestas_estudiantes
+BEFORE INSERT ON respuestas_estudiantes
+FOR EACH ROW
+BEGIN
+  IF :NEW.respuesta_estudiante_id IS NULL THEN
+    SELECT seq_respuestas_estudiantes.NEXTVAL INTO :NEW.respuesta_estudiante_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_respuestas_opciones
+BEFORE INSERT ON respuestas_opciones
+FOR EACH ROW
+BEGIN
+  IF :NEW.respuesta_opcion_id IS NULL THEN
+    SELECT seq_respuestas_opciones.NEXTVAL INTO :NEW.respuesta_opcion_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_respuestas_orden
+BEFORE INSERT ON respuestas_orden
+FOR EACH ROW
+BEGIN
+  IF :NEW.respuesta_orden_id IS NULL THEN
+    SELECT seq_respuestas_orden.NEXTVAL INTO :NEW.respuesta_orden_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_temas
+BEFORE INSERT ON temas
+FOR EACH ROW
+BEGIN
+  IF :NEW.tema_id IS NULL THEN
+    SELECT seq_temas.NEXTVAL INTO :NEW.tema_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_tipo_accion
+BEFORE INSERT ON tipo_accion
+FOR EACH ROW
+BEGIN
+  IF :NEW.tipo_accion_id IS NULL THEN
+    SELECT seq_tipo_accion.NEXTVAL INTO :NEW.tipo_accion_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_tipo_preguntas
+BEFORE INSERT ON tipo_preguntas
+FOR EACH ROW
+BEGIN
+  IF :NEW.tipo_pregunta_id IS NULL THEN
+    SELECT seq_tipo_preguntas.NEXTVAL INTO :NEW.tipo_pregunta_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_tipo_usuario
+BEFORE INSERT ON tipo_usuario
+FOR EACH ROW
+BEGIN
+  IF :NEW.usuario_id IS NULL THEN
+    SELECT seq_tipo_usuario.NEXTVAL INTO :NEW.usuario_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_unidades
+BEFORE INSERT ON unidades
+FOR EACH ROW
+BEGIN
+  IF :NEW.unidad_id IS NULL THEN
+    SELECT seq_unidades.NEXTVAL INTO :NEW.unidad_id FROM dual;
+  END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_bi_usuarios
+BEFORE INSERT ON usuarios
+FOR EACH ROW
+BEGIN
+  IF :NEW.usuario_id IS NULL THEN
+    SELECT seq_usuarios.NEXTVAL INTO :NEW.usuario_id FROM dual;
+  END IF;
+END;
+/
+
+-- Inserts sin especificar PK (autoincremento via secuencias y triggers)
+
+-- Tipos de usuario
+INSERT INTO tipo_usuario (descripcion) VALUES ('ESTUDIANTE');
+INSERT INTO tipo_usuario (descripcion) VALUES ('PROFESOR');
+
+-- Tipos de pregunta
+INSERT INTO tipo_preguntas (descripcion) VALUES ('COMPLETAR');
+INSERT INTO tipo_preguntas (descripcion) VALUES ('EMPAREJAR');
+INSERT INTO tipo_preguntas (descripcion) VALUES ('OPCION_MULTIPLE');
+INSERT INTO tipo_preguntas (descripcion) VALUES ('OPCION_UNICA');
+INSERT INTO tipo_preguntas (descripcion) VALUES ('ORDENAR');
+INSERT INTO tipo_preguntas (descripcion) VALUES ('VERDADERO_FALSO');
+
+-- Tipos de acción
+INSERT INTO tipo_accion (descripcion) VALUES ('ENTRADA');
+INSERT INTO tipo_accion (descripcion) VALUES ('SALIDA');
+
+-- Estados de acción
+INSERT INTO estado_accion (descripcion) VALUES ('EXITOSO');
+INSERT INTO estado_accion (descripcion) VALUES ('FALLIDO');
+
+-- Usuarios (estudiante y profesor)
+INSERT INTO usuarios (
+    nombre, apellido, email, contrasenia, fecha_registro, activo, tipo_usuario_id
+) VALUES (
+    'Ana', 'Pérez', 'anap@example.com', '123', SYSTIMESTAMP, 'S', 1
+);
+
+INSERT INTO usuarios (
+    nombre, apellido, email, contrasenia, fecha_registro, activo, tipo_usuario_id
+) VALUES (
+    'Carlos', 'Gómez', 'carlosg@example.com', '123', SYSTIMESTAMP, 'S', 2
+);
+
+-- Cursos
+INSERT INTO cursos (nombre, descripcion, activo) VALUES ('Matemáticas Básicas', 'Curso de fundamentos matemáticos', 'S');
+INSERT INTO cursos (nombre, descripcion, activo) VALUES ('Programación 1', 'Introducción a la programación', 'S');
+INSERT INTO cursos (nombre, descripcion, activo) VALUES ('Física', 'Conceptos fundamentales de física', 'S');
+INSERT INTO cursos (nombre, descripcion, activo) VALUES ('Química General', 'Curso de química básica', 'S');
+INSERT INTO cursos (nombre, descripcion, activo) VALUES ('Inglés A1', 'Curso introductorio de inglés', 'S');
+
+-- Grupos
+INSERT INTO grupos (nombre, lugar, horario, profesor_id, curso_id) VALUES ('Grupo A', 'Aula 101', 'Lunes 8-10am', 2, 1);
+INSERT INTO grupos (nombre, lugar, horario, profesor_id, curso_id) VALUES ('Grupo B', 'Aula 102', 'Martes 10-12am', 2, 2);
+INSERT INTO grupos (nombre, lugar, horario, profesor_id, curso_id) VALUES ('Grupo C', 'Aula 103', 'Miércoles 2-4pm', 2, 3);
+INSERT INTO grupos (nombre, lugar, horario, profesor_id, curso_id) VALUES ('Grupo D', 'Aula 104', 'Jueves 8-10am', 2, 4);
+INSERT INTO grupos (nombre, lugar, horario, profesor_id, curso_id) VALUES ('Grupo E', 'Aula 105', 'Viernes 10-12am', 2, 5);
+
+-- Temas
+INSERT INTO temas (nombre, descripcion, orden) VALUES ('Álgebra', 'Conceptos básicos de álgebra', 1);
+INSERT INTO temas (nombre, descripcion, orden) VALUES ('Variables', 'Introducción a las variables', 2);
+INSERT INTO temas (nombre, descripcion, orden) VALUES ('Movimiento', 'Estudio del movimiento en física', 3);
+INSERT INTO temas (nombre, descripcion, orden) VALUES ('Elementos químicos', 'Estructura de la materia', 4);
+INSERT INTO temas (nombre, descripcion, orden) VALUES ('Saludos', 'Vocabulario básico en inglés', 5);
+
+-- Unidades
+INSERT INTO unidades (nombre, descripcion, orden, curso_id) VALUES ('Unidad 1', 'Introducción al curso', 1, 1);
+INSERT INTO unidades (nombre, descripcion, orden, curso_id) VALUES ('Unidad 2', 'Operaciones básicas', 2, 1);
+INSERT INTO unidades (nombre, descripcion, orden, curso_id) VALUES ('Unidad 3', 'Condicionales', 1, 2);
+INSERT INTO unidades (nombre, descripcion, orden, curso_id) VALUES ('Unidad 4', 'Cinemática', 1, 3);
+INSERT INTO unidades (nombre, descripcion, orden, curso_id) VALUES ('Unidad 5', 'Elementos del idioma', 1, 5);
+
+-- Relación Unidades-Temas
+INSERT INTO unidades_temas (unidad_id, tema_id, orden) VALUES (1, 1, 1);
+INSERT INTO unidades_temas (unidad_id, tema_id, orden) VALUES (2, 1, 2);
+INSERT INTO unidades_temas (unidad_id, tema_id, orden) VALUES (3, 2, 1);
+INSERT INTO unidades_temas (unidad_id, tema_id, orden) VALUES (4, 3, 1);
+INSERT INTO unidades_temas (unidad_id, tema_id, orden) VALUES (5, 5, 1);
+
+-- Preguntas
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('Frase con espacios para completar.', SYSTIMESTAMP, 'S', 60, 1, 2, 1);
+
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('Empareja los elementos correspondientes.', SYSTIMESTAMP, 'S', 60, 2, 2, 2);
+
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('Ordena correctamente los pasos.', SYSTIMESTAMP, 'S', 60, 5, 2, 3);
+
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('¿Cuáles son lenguajes de programación?', SYSTIMESTAMP, 'S', 60, 3, 2, 2);
+
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('¿Cuál es el resultado de 2 + 2?', SYSTIMESTAMP, 'S', 60, 4, 2, 1);
+
+INSERT INTO preguntas (texto, fecha_creacion, es_publica, tiempo_maximo, tipo_pregunta_id, creador_id, tema_id)
+VALUES ('La Tierra es plana.', SYSTIMESTAMP, 'S', 60, 6, 2, 4);
+
+-- Completar preguntas y espacios
+INSERT INTO completar_preguntas (pregunta_id, texto_con_espacios)
+VALUES (1, 'El {{1}} de julio es un {{2}} festivo en algunos países.');
+
+INSERT INTO completar_espacios (numero_espacio, texto_correcto, completar_pregunta_id)
+VALUES (1, '20', 1);
+
+INSERT INTO completar_espacios (numero_espacio, texto_correcto, completar_pregunta_id)
+VALUES (2, 'día', 1);
+
+-- Emparejamiento
+INSERT INTO emparejamiento_preguntas (opcion_a, opcion_b, pregunta_id)
+VALUES ('HTML', 'Lenguaje de marcado', 2);
+
+INSERT INTO emparejamiento_preguntas (opcion_a, opcion_b, pregunta_id)
+VALUES ('Python', 'Lenguaje de programación', 2);
+
+-- Ordenar
+INSERT INTO orden_preguntas (texto, posicion_correcta, pregunta_id)
+VALUES ('Abrir el IDE', 1, 3);
+
+INSERT INTO orden_preguntas (texto, posicion_correcta, pregunta_id)
+VALUES ('Escribir el código', 2, 3);
+
+INSERT INTO orden_preguntas (texto, posicion_correcta, pregunta_id)
+VALUES ('Ejecutar el programa', 3, 3);
+
+-- Opciones preguntas (OPCIÓN MÚLTIPLE / ÚNICA / VF)
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('Python', 'S', 1, 4);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('Java', 'S', 2, 4);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('Banana', 'N', 3, 4);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('3', 'N', 1, 5);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('4', 'S', 2, 5);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('5', 'N', 3, 5);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('Verdadero', 'N', 1, 6);
+
+INSERT INTO opciones_preguntas (texto, es_correcta, orden, pregunta_id)
+VALUES ('Falso', 'S', 2, 6);
