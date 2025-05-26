@@ -48,18 +48,16 @@ END;
 /
 
 
-create or replace NONEDITIONABLE TRIGGER TRG_COMPLETAR_EXAMEN
+create or replace NONEDITIONABLE TRIGGER trg_completar_examen
 AFTER UPDATE ON Examenes
-DECLARE
-    v_count NUMBER;
+FOR EACH ROW
+WHEN (NEW.fecha_disponible IS NOT NULL AND 
+     (OLD.fecha_disponible IS NULL OR NEW.max_intentos != OLD.max_intentos))
 BEGIN
-    SELECT COUNT(*) INTO v_count FROM tmp_examenes_por_completar;
-
-    IF v_count > 0 THEN
-        SP_COMPLETAR_EXAMENES();
-    END IF;
+    -- Si se está configurando la fecha disponible o cambiando max_intentos,
+    -- asumir que está listo para publicar y validar/completar el examen
+    sp_validar_completar_examen(:NEW.examen_id);
 END;
-
 
 /
 
