@@ -629,47 +629,7 @@ BEGIN
 END;
 /
 
--- Analisis de dificultad de preguntas
-CREATE OR REPLACE FUNCTION analisis_dificultad_preguntas(
-    p_curso_id IN NUMBER
-) RETURN SYS_REFCURSOR IS
-    v_cursor SYS_REFCURSOR;
-BEGIN
-    OPEN v_cursor FOR
-        SELECT 
-            p.pregunta_id,
-            p.texto,
-            p.retroalimentacion,
-            t.nombre AS tema,
-            tp.descripcion AS tipo_pregunta,
-            COUNT(DISTINCT ie.intento_examen_id) AS total_intentos,
-            SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) AS respuestas_correctas,
-            ROUND((SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
-                  COUNT(DISTINCT ie.intento_examen_id)) * 100, 2) AS porcentaje_acierto,
-            CASE 
-                WHEN (SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
-                     COUNT(DISTINCT ie.intento_examen_id)) * 100 < 30 THEN 'DIFÍCIL'
-                WHEN (SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
-                     COUNT(DISTINCT ie.intento_examen_id)) * 100 < 70 THEN 'MODERADA'
-                ELSE 'FÁCIL'
-            END AS dificultad
-        FROM Preguntas p
-        JOIN Temas t ON p.tema_id = t.tema_id
-        JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
-        JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
-        JOIN Unidades u ON ut.unidad_id = u.unidad_id
-        JOIN Preguntas_Examenes pe ON p.pregunta_id = pe.pregunta_id
-        JOIN Examenes e ON pe.examen_id = e.examen_id
-        JOIN Grupos g ON e.grupo_id = g.grupo_id
-        JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id
-        JOIN Respuestas_Estudiantes re ON ie.intento_examen_id = re.intento_examen_id AND pe.pregunta_examen_id = re.pregunta_examen_id
-        WHERE g.curso_id = p_curso_id
-        GROUP BY p.pregunta_id, p.texto, p.retroalimentacion, t.nombre, tp.descripcion
-        ORDER BY porcentaje_acierto;
-    
-    RETURN v_cursor;
-END;
-/
+
 
 CREATE OR REPLACE FUNCTION estadisticas_curso(
     p_curso_id IN NUMBER
