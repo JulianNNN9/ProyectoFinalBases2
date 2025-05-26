@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION fn_estadisticas_curso(
   v_cursor SYS_REFCURSOR;
 BEGIN
   OPEN v_cursor FOR
-    SELECT 
+    SELECT
       c.nombre AS curso,
       g.nombre AS grupo,
       e.examen_id,
@@ -15,15 +15,17 @@ BEGIN
       MAX(ie.puntaje_total) AS puntaje_maximo,
       COUNT(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 END) AS aprobados,
       COUNT(CASE WHEN ie.puntaje_total < e.umbral_aprobacion THEN 1 END) AS reprobados,
-      ROUND((COUNT(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 END) / 
-             COUNT(ie.intento_examen_id)) * 100, 2) AS porcentaje_aprobacion
+      CASE
+        WHEN COUNT(ie.intento_examen_id) = 0 THEN NULL -- Or 0 if 0% is preferred for no attempts
+        ELSE ROUND((COUNT(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 END) * 100.0) / COUNT(ie.intento_examen_id), 2)
+      END AS porcentaje_aprobacion
     FROM Cursos c
     JOIN Grupos g ON c.curso_id = g.curso_id
     JOIN Examenes e ON g.grupo_id = e.grupo_id
     LEFT JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id
     WHERE c.curso_id = p_curso_id
-    GROUP BY c.nombre, g.nombre, e.examen_id;
-    
+    GROUP BY c.nombre, g.nombre, e.examen_id, e.umbral_aprobacion;
+
   RETURN v_cursor;
 END;
 /
@@ -71,29 +73,36 @@ CREATE OR REPLACE FUNCTION fn_analisis_dificultad_preguntas(
   v_cursor SYS_REFCURSOR;
 BEGIN
   OPEN v_cursor FOR
-    SELECT 
+    WITH Preguntas_Texto_CTE AS (
+      SELECT
+        p.pregunta_id,
+        DBMS_LOB.SUBSTR(p.texto, 4000, 1) AS pregunta_texto_varchar,
+        p.tipo_pregunta_id -- Include other necessary columns from Preguntas
+      FROM Preguntas p
+    )
+    SELECT
       pe.pregunta_examen_id,
-      p.texto AS pregunta,
+      pt_cte.pregunta_texto_varchar AS pregunta,
       tp.descripcion AS tipo_pregunta,
       COUNT(re.respuesta_estudiante_id) AS total_intentos,
       COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) AS respuestas_correctas,
-      ROUND((COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
-             NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100, 2) AS porcentaje_acierto,
-      CASE 
-        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
-              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100 < 30 THEN 'DIFÍCIL'
-        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) / 
-              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) * 100 > 70 THEN 'FÁCIL'
+      ROUND((COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) * 100.0 /
+             NULLIF(COUNT(re.respuesta_estudiante_id), 0)), 2) AS porcentaje_acierto,
+      CASE
+        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) * 100.0 /
+              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) < 30 THEN 'DIFÍCIL'
+        WHEN (COUNT(CASE WHEN re.es_correcta = 'S' THEN 1 END) * 100.0 /
+              NULLIF(COUNT(re.respuesta_estudiante_id), 0)) > 70 THEN 'FÁCIL'
         ELSE 'MEDIA'
       END AS dificultad
     FROM Preguntas_Examenes pe
-    JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
-    JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
+    JOIN Preguntas_Texto_CTE pt_cte ON pe.pregunta_id = pt_cte.pregunta_id
+    JOIN Tipo_Preguntas tp ON pt_cte.tipo_pregunta_id = tp.tipo_pregunta_id
     LEFT JOIN Respuestas_Estudiantes re ON pe.pregunta_examen_id = re.pregunta_examen_id
     WHERE pe.examen_id = p_examen_id
-    GROUP BY pe.pregunta_examen_id, p.texto, tp.descripcion
+    GROUP BY pe.pregunta_examen_id, pt_cte.pregunta_texto_varchar, tp.descripcion
     ORDER BY porcentaje_acierto ASC;
-    
+
   RETURN v_cursor;
 END;
 /
