@@ -113,7 +113,7 @@ END;
 /
 
 -- Improved test for sp_llenar_examen_aleatorio
-BEGIN
+BEGIN --FUNCIONA
     DBMS_OUTPUT.PUT_LINE('Testing sp_llenar_examen_aleatorio (improved)');
     
     DECLARE
@@ -160,7 +160,7 @@ END;
 /
 
 -- Improved test for sp_rebalancear_pesos_examen
-BEGIN
+BEGIN --FUNCIONA
     DBMS_OUTPUT.PUT_LINE('Testing sp_rebalancear_pesos_examen (improved)');
     
     DECLARE
@@ -214,7 +214,7 @@ END;
 /
 
 -- Improved test for sp_validar_completar_examen
-BEGIN
+BEGIN 
     DBMS_OUTPUT.PUT_LINE('Testing sp_validar_completar_examen (improved)');
     
     DECLARE
@@ -265,7 +265,7 @@ END;
 /
 
 -- Improved test for sp_verificar_tiempo_entrega
-BEGIN
+BEGIN --FUNCIONA
     DBMS_OUTPUT.PUT_LINE('Testing sp_verificar_tiempo_entrega (improved)');
     
     DECLARE

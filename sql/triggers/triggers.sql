@@ -1,48 +1,67 @@
-create or replace NONEDITIONABLE TRIGGER TRG_AGREGAR_SUBPREGUNTAS_EXAMEN
+create or replace NONEDITIONABLE TRIGGER trg_agregar_subpreguntas_examen
 AFTER INSERT ON Preguntas_Examenes
-DECLARE
-    v_count NUMBER;
-BEGIN
-    SELECT COUNT(*) INTO v_count FROM tmp_subpreguntas_por_agregar;
-
-    IF v_count > 0 THEN
-        SP_AGREGAR_SUBPREGUNTAS();
-    END IF;
-END;
-/
-
-create or replace NONEDITIONABLE TRIGGER TRG_BLOQUEAR_EDICION_EXAMEN
-BEFORE UPDATE ON Examenes
 FOR EACH ROW
-WHEN (
-    OLD.tiempo_limite != NEW.tiempo_limite OR
-    OLD.cantidad_preguntas_mostrar != NEW.cantidad_preguntas_mostrar OR
-    OLD.aleatorizar_preguntas != NEW.aleatorizar_preguntas OR
-    OLD.umbral_aprobacion != NEW.umbral_aprobacion
-)
 DECLARE
-    v_count NUMBER;
-    v_es_prueba BOOLEAN := FALSE;
+    v_siguiente_orden NUMBER;
+    v_peso_subpregunta NUMBER;
+    v_count NUMBER := 0;
 BEGIN
-    -- Verificar si estamos en modo prueba
-    IF :OLD.examen_id >= 1000 AND :OLD.examen_id < 20000 THEN
-        v_es_prueba := TRUE;
-    END IF;
+    -- Verificar si la pregunta insertada tiene subpreguntas
+    SELECT COUNT(*)
+    INTO v_count
+    FROM Preguntas
+    WHERE pregunta_padre_id = :NEW.pregunta_id;
 
-    -- Si estamos en modo prueba para la Prueba 11, permitir
-    IF v_es_prueba AND :OLD.examen_id = 10001 AND :NEW.descripcion = 'Descripción actualizada' THEN
-        RETURN;
-    END IF;
-
-    -- Verificar si el examen tiene intentos
-    SELECT COUNT(*) INTO v_count
-    FROM Intentos_Examen
-    WHERE examen_id = :OLD.examen_id;
-
+    -- Si tiene subpreguntas, agregarlas al examen
     IF v_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20001, 'No se puede modificar un examen que ya tiene intentos registrados');
+        -- Obtener el siguiente orden (después de la pregunta principal)
+        v_siguiente_orden := :NEW.orden + 1;
+
+        -- Calcular peso para distribuir entre subpreguntas (50% del peso original)
+        -- La pregunta principal mantendrá el otro 50%
+        v_peso_subpregunta := :NEW.peso / 2 / v_count;
+
+        -- Actualizar el peso de la pregunta principal
+        UPDATE Preguntas_Examenes
+        SET peso = :NEW.peso / 2
+        WHERE pregunta_examen_id = :NEW.pregunta_examen_id;
+
+        -- Insertar todas las subpreguntas
+        INSERT INTO Preguntas_Examenes (
+            pregunta_examen_id,
+            peso,
+            orden,
+            pregunta_id,
+            examen_id
+        )
+        SELECT 
+            SQ_PREGUNTA_EXAMEN_ID.NEXTVAL,
+            v_peso_subpregunta,
+            v_siguiente_orden + ROWNUM - 1,
+            pregunta_id,
+            :NEW.examen_id
+        FROM (
+            SELECT p.pregunta_id
+            FROM Preguntas p
+            WHERE p.pregunta_padre_id = :NEW.pregunta_id
+            AND NOT EXISTS (
+                -- Evitar duplicados (aunque el trigger trg_evitar_preguntas_duplicadas también lo maneja)
+                SELECT 1 FROM Preguntas_Examenes pe
+                WHERE pe.pregunta_id = p.pregunta_id
+                AND pe.examen_id = :NEW.examen_id
+            )
+            ORDER BY p.pregunta_id  -- Orden consistente
+        );
+
+        -- Actualizar orden para las preguntas que vengan después
+        UPDATE Preguntas_Examenes
+        SET orden = orden + v_count
+        WHERE examen_id = :NEW.examen_id
+        AND orden > :NEW.orden
+        AND pregunta_examen_id != :NEW.pregunta_examen_id;
     END IF;
 END;
+
 
 
 /
@@ -61,26 +80,48 @@ END;
 
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_EVITAR_PREGUNTAS_DUPLICADAS
-BEFORE INSERT ON Preguntas_Examenes
-FOR EACH ROW
-DECLARE
-    v_count NUMBER;
+create or replace NONEDITIONABLE TRIGGER trg_evitar_preguntas_duplicadas
+FOR INSERT ON Preguntas_Examenes
+COMPOUND TRIGGER
+
+-- Variables a nivel del trigger
+v_duplicado NUMBER;
+
+-- Antes del statement
+BEFORE STATEMENT IS
 BEGIN
-    -- Verificar si la pregunta ya existe en este examen
-    SELECT COUNT(*) INTO v_count
-    FROM Preguntas_Examenes
-    WHERE examen_id = :NEW.examen_id
+    -- Limpiar tabla temporal
+    DELETE FROM temp_preguntas_examen;
+
+    -- Insertar preguntas existentes
+    INSERT INTO temp_preguntas_examen (examen_id, pregunta_id)
+    SELECT examen_id, pregunta_id
+    FROM Preguntas_Examenes;
+END BEFORE STATEMENT;
+
+-- Antes de cada row
+BEFORE EACH ROW IS
+BEGIN
+    -- Verificar si la pregunta ya existe usando la tabla temporal
+    SELECT COUNT(*)
+    INTO v_duplicado
+    FROM temp_preguntas_examen 
+    WHERE examen_id = :NEW.examen_id 
     AND pregunta_id = :NEW.pregunta_id;
 
-    IF v_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20006, 'La pregunta ya existe en este examen');
+    IF v_duplicado > 0 THEN
+        raise_application_error(-20001, 'La pregunta ya existe en este examen');
     END IF;
-END;
+
+    -- Insertar la nueva pregunta en la tabla temporal
+    INSERT INTO temp_preguntas_examen (examen_id, pregunta_id)
+    VALUES (:NEW.examen_id, :NEW.pregunta_id);
+END BEFORE EACH ROW;
+
+END trg_evitar_preguntas_duplicadas;
 
 
 /
-
 create or replace NONEDITIONABLE TRIGGER trg_examenes_before_insert
 BEFORE INSERT ON Examenes
 FOR EACH ROW
@@ -102,113 +143,99 @@ BEGIN
 END;
 
 
+
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_RESTRINGIR_MODIFICACION_EXAMEN
+create or replace NONEDITIONABLE TRIGGER trg_restringir_modificacion_examen
 BEFORE UPDATE ON Examenes
 FOR EACH ROW
 DECLARE
-    v_count NUMBER;
-    v_es_prueba BOOLEAN := FALSE;
+  v_intentos NUMBER;
 BEGIN
-    -- Verificar si estamos en modo prueba (examenes con ID > 1000 son de prueba)
-    IF :OLD.examen_id >= 1000 AND :OLD.examen_id < 20000 THEN
-        v_es_prueba := TRUE;
-    END IF;
+  SELECT COUNT(*)
+  INTO v_intentos
+  FROM Intentos_Examen
+  WHERE examen_id = :OLD.examen_id;
 
-    -- En pruebas, permitir actualizaciones específicas
-    IF v_es_prueba AND :NEW.descripcion = 'Descripción actualizada' THEN
-        RETURN;
-    END IF;
-
-    -- Verificar si el examen tiene intentos
-    SELECT COUNT(*) INTO v_count
-    FROM Intentos_Examen
-    WHERE examen_id = :OLD.examen_id;
-
-    IF v_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20007, 'No se puede modificar un examen que ya tiene presentaciones');
-    END IF;
+  IF v_intentos > 0 THEN
+    RAISE_APPLICATION_ERROR(-20007, 'No se puede modificar un examen que ya tiene presentaciones');
+  END IF;
 END;
+
 
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_RESTRINGIR_MODIFICACION_PREGUNTA
+create or replace NONEDITIONABLE TRIGGER trg_restringir_modificacion_pregunta
 BEFORE UPDATE ON Preguntas
 FOR EACH ROW
 DECLARE
-    v_count NUMBER;
+  v_examen_count NUMBER;
+  v_intentos_count NUMBER;
 BEGIN
-    -- Verificar si la pregunta está en algún examen con intentos
-    SELECT COUNT(*) INTO v_count
-    FROM Preguntas_Examenes pe
-    JOIN Intentos_Examen ie ON pe.examen_id = ie.examen_id
-    WHERE pe.pregunta_id = :OLD.pregunta_id;
+  SELECT COUNT(*)
+  INTO v_intentos_count
+  FROM Preguntas_Examenes pe
+  JOIN Intentos_Examen ie ON pe.examen_id = ie.examen_id
+  WHERE pe.pregunta_id = :OLD.pregunta_id;
 
-    IF v_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20008, 'No se puede modificar una pregunta usada en exámenes ya presentados');
-    END IF;
+  IF v_intentos_count > 0 THEN
+    RAISE_APPLICATION_ERROR(-20008, 'No se puede modificar una pregunta usada en exámenes ya presentados');
+  END IF;
 END;
+
 
 
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_VALIDAR_CAMBIO_VISIBILIDAD
+create or replace NONEDITIONABLE TRIGGER trg_validar_cambio_visibilidad
 BEFORE UPDATE OF es_publica ON Preguntas
 FOR EACH ROW
-WHEN (OLD.es_publica = 'S' AND NEW.es_publica = 'N')
 DECLARE
-    v_count NUMBER;
+    v_examenes_publicos NUMBER;
 BEGIN
-    -- Verificar si la pregunta está en algún examen activo
-    SELECT COUNT(*) INTO v_count
-    FROM Preguntas_Examenes pe
-    JOIN Examenes e ON pe.examen_id = e.examen_id
-    WHERE pe.pregunta_id = :OLD.pregunta_id
-    AND e.fecha_disponible <= SYSTIMESTAMP
-    AND e.fecha_limite >= SYSTIMESTAMP;
+    -- Si se está cambiando de pública a privada
+    IF :OLD.es_publica = 'S' AND :NEW.es_publica = 'N' THEN
+        -- Verificar si está siendo usada en exámenes activos
+        SELECT COUNT(*) INTO v_examenes_publicos
+        FROM Preguntas_Examenes pe
+        JOIN Examenes e ON pe.examen_id = e.examen_id
+        WHERE pe.pregunta_id = :OLD.pregunta_id
+        AND e.fecha_disponible <= SYSTIMESTAMP
+        AND (e.fecha_limite >= SYSTIMESTAMP OR e.fecha_limite IS NULL);
 
-    IF v_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20102, 'No se puede cambiar a privada una pregunta en uso en exámenes activos');
+        -- No permitir cambiar a privada si está siendo usada en exámenes activos
+        IF v_examenes_publicos > 0 THEN
+            RAISE_APPLICATION_ERROR(-20102, 'No se puede cambiar a privada una pregunta en uso en exámenes activos');
+        END IF;
     END IF;
 END;
 
 
+
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_VALIDAR_EXAMEN_CREACION
+create or replace NONEDITIONABLE TRIGGER trg_validar_examen_creacion
 BEFORE INSERT OR UPDATE ON Examenes
 FOR EACH ROW
 DECLARE
-    v_count NUMBER;
-    -- Variable para detectar si estamos en contexto de pruebas
-    v_es_prueba BOOLEAN := FALSE;
+  v_profesor_valido BOOLEAN;
 BEGIN
-    -- Verificar si estamos en modo prueba (examenes con ID > 1000 son de prueba)
-    IF :NEW.examen_id >= 1000 AND :NEW.examen_id < 20000 THEN
-        v_es_prueba := TRUE;
-    END IF;
+  -- Validar que la fecha límite no sea anterior a la fecha disponible
+  IF :NEW.fecha_limite < :NEW.fecha_disponible THEN
+    RAISE_APPLICATION_ERROR(-20002, 'La fecha límite no puede ser anterior a la fecha disponible');
+  END IF;
 
-    -- Verificar que la fecha límite sea posterior a la fecha disponible
-    IF :NEW.fecha_limite < :NEW.fecha_disponible THEN
-        RAISE_APPLICATION_ERROR(-20002, 'La fecha límite no puede ser anterior a la fecha disponible');
-    END IF;
+  -- Validar que la fecha disponible no sea anterior a la fecha actual
+  IF :NEW.fecha_disponible < SYSTIMESTAMP THEN
+    RAISE_APPLICATION_ERROR(-20003, 'La fecha disponible no puede ser anterior a la fecha actual');
+  END IF;
 
-    -- Verificar que la fecha disponible sea posterior a la fecha actual
-    -- Solo si no estamos en modo prueba
-    IF NOT v_es_prueba AND :NEW.fecha_disponible < SYSTIMESTAMP THEN
-        RAISE_APPLICATION_ERROR(-20003, 'La fecha disponible no puede ser anterior a la fecha actual');
-    END IF;
+  -- Validar que el profesor pertenezca al grupo
+  v_profesor_valido := fn_profesor_pertenece_curso(:NEW.creador_id, :NEW.grupo_id);
 
-    -- Verificar que el profesor esté asignado al grupo
-    SELECT COUNT(*) INTO v_count
-    FROM Grupos
-    WHERE grupo_id = :NEW.grupo_id
-    AND profesor_id = :NEW.creador_id;
-
-    IF v_count = 0 THEN
-        RAISE_APPLICATION_ERROR(-20004, 'El profesor no está asignado a este grupo');
-    END IF;
+  IF NOT v_profesor_valido THEN
+    RAISE_APPLICATION_ERROR(-20004, 'El profesor no está asignado a este grupo');
+  END IF;
 END;
 
 /
@@ -226,61 +253,45 @@ BEGIN
         INTO v_total_preguntas
         FROM Preguntas_Examenes
         WHERE examen_id = :NEW.examen_id;
-
         -- Asignar peso equitativo
         :NEW.peso := 100 / v_total_preguntas;
     END IF;
 END;
 
 
+
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_VALIDAR_PREGUNTA_TEMA_EXAMEN
+create or replace NONEDITIONABLE TRIGGER trg_validar_pregunta_tema_examen
 BEFORE INSERT ON Preguntas_Examenes
 FOR EACH ROW
 DECLARE
-    v_tema_id NUMBER;
-    v_curso_id NUMBER;
-    v_count NUMBER := 0;
-    v_es_prueba BOOLEAN := FALSE;
+  v_pertenece BOOLEAN;
+  v_retroalimentacion CLOB;
 BEGIN
-    -- Verificar si estamos en modo prueba (IDs > 200 son de prueba)
-    IF :NEW.pregunta_examen_id >= 200 AND :NEW.pregunta_examen_id < 20000 THEN
-        v_es_prueba := TRUE;
-    END IF;
+  -- Verificar que la pregunta pertenezca a los temas del curso del examen
+  v_pertenece := fn_pregunta_pertenece_examen(:NEW.pregunta_id, :NEW.examen_id);
 
-    -- Verificar explícitamente el caso de la prueba 5
-    IF :NEW.pregunta_examen_id = 402 THEN
-        RAISE_APPLICATION_ERROR(-20005, 'La pregunta no pertenece a un tema asociado al curso del examen');
-    END IF;
+  IF NOT v_pertenece THEN
+    RAISE_APPLICATION_ERROR(-20007, 'La pregunta no pertenece a los temas del curso asociado al examen');
+  END IF;
 
-    -- Para otras pruebas, permitir
-    IF v_es_prueba THEN
-        RETURN;
-    END IF;
-
-    -- Obtener el tema de la pregunta
-    SELECT tema_id INTO v_tema_id
+  -- Verificar si la pregunta tiene retroalimentación
+  BEGIN
+    SELECT retroalimentacion
+    INTO v_retroalimentacion
     FROM Preguntas
     WHERE pregunta_id = :NEW.pregunta_id;
 
-    -- Obtener el curso asociado al examen
-    SELECT c.curso_id INTO v_curso_id
-    FROM Examenes e
-    JOIN Grupos g ON e.grupo_id = g.grupo_id
-    JOIN Cursos c ON g.curso_id = c.curso_id
-    WHERE e.examen_id = :NEW.examen_id;
-
-    -- Verificar si el tema está asociado al curso
-    SELECT COUNT(*) INTO v_count
-    FROM Unidades u
-    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
-    WHERE u.curso_id = v_curso_id
-    AND ut.tema_id = v_tema_id;
-
-    IF v_count = 0 THEN
-        RAISE_APPLICATION_ERROR(-20005, 'La pregunta no pertenece a un tema asociado al curso del examen');
+    -- Advertencia si no hay retroalimentación (podría usar un log en lugar de dbms_output)
+    IF v_retroalimentacion IS NULL THEN
+      dbms_output.put_line('Advertencia: La pregunta ' || :NEW.pregunta_id || 
+                           ' no tiene retroalimentación definida');
     END IF;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20009, 'La pregunta especificada no existe');
+  END;
 END;
 
 /
@@ -313,39 +324,82 @@ BEGIN
 END;
 
 
+
 /
 
-create or replace NONEDITIONABLE TRIGGER TRG_VERIFICAR_LIMITE_PREGUNTAS
+create or replace NONEDITIONABLE TRIGGER trg_verificar_limite_preguntas_row
 BEFORE INSERT ON Preguntas_Examenes
 FOR EACH ROW
 DECLARE
-    v_count NUMBER;
-    v_limite NUMBER;
-    v_es_prueba BOOLEAN := FALSE;
+    v_total_preguntas NUMBER;
+    v_limite_preguntas NUMBER;
 BEGIN
-    -- Verificar si estamos en modo prueba
-    IF :NEW.pregunta_examen_id >= 300 AND :NEW.pregunta_examen_id < 20000 THEN
-        v_es_prueba := TRUE;
-    END IF;
-
-    -- Obtener límite de preguntas configurado para el examen
-    SELECT NVL(cantidad_preguntas_mostrar, 0) INTO v_limite
-    FROM Examenes
+    -- Obtener valores de la tabla temporal
+    SELECT total_preguntas, limite_preguntas
+    INTO v_total_preguntas, v_limite_preguntas
+    FROM temp_pregunta_count
     WHERE examen_id = :NEW.examen_id;
 
-    -- Si no hay límite, permitir
-    IF v_limite = 0 THEN
-        RETURN;
+    -- Si no existe en la tabla temporal, obtener valores directamente
+    IF v_total_preguntas IS NULL THEN
+        SELECT COUNT(*), e.cantidad_preguntas_mostrar
+        INTO v_total_preguntas, v_limite_preguntas
+        FROM Examenes e
+        LEFT JOIN Preguntas_Examenes pe ON e.examen_id = pe.examen_id
+        WHERE e.examen_id = :NEW.examen_id
+        GROUP BY e.cantidad_preguntas_mostrar;
     END IF;
 
-    -- Contar preguntas actuales
-    SELECT COUNT(*) INTO v_count
-    FROM Preguntas_Examenes
-    WHERE examen_id = :NEW.examen_id;
-
-    -- Validar que no exceda el límite (excepto en pruebas específicas)
-    IF v_count >= v_limite AND NOT v_es_prueba THEN
-        RAISE_APPLICATION_ERROR(-20009, 'No se pueden agregar más preguntas. Límite de ' || v_limite || ' alcanzado.');
+    -- Verificar si excede el límite
+    IF v_limite_preguntas IS NOT NULL AND v_total_preguntas >= v_limite_preguntas THEN
+        RAISE_APPLICATION_ERROR(-20002, 
+            'No se pueden agregar más preguntas. Límite alcanzado (' || 
+            v_total_preguntas || '/' || v_limite_preguntas || ').');
     END IF;
 END;
+
 /
+
+create or replace NONEDITIONABLE TRIGGER trg_verificar_limite_preguntas_stmt
+BEFORE INSERT ON Preguntas_Examenes
+DECLARE
+    CURSOR c_examenes IS
+        SELECT e.examen_id, 
+               COUNT(pe.pregunta_examen_id) as total_preguntas,
+               e.cantidad_preguntas_mostrar as limite_preguntas
+        FROM Examenes e
+        LEFT JOIN Preguntas_Examenes pe ON e.examen_id = pe.examen_id
+        GROUP BY e.examen_id, e.cantidad_preguntas_mostrar;
+BEGIN
+    -- Limpiar tabla temporal
+    DELETE FROM temp_pregunta_count;
+
+    -- Insertar conteos actuales
+    FOR r IN c_examenes LOOP
+        INSERT INTO temp_pregunta_count (examen_id, total_preguntas, limite_preguntas)
+        VALUES (r.examen_id, r.total_preguntas, r.limite_preguntas);
+    END LOOP;
+END;
+
+/
+
+create or replace NONEDITIONABLE TRIGGER trg_bloquear_edicion_examen
+BEFORE UPDATE ON Examenes
+FOR EACH ROW
+DECLARE
+    v_intentos_count NUMBER;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_intentos_count
+    FROM Intentos_Examen
+    WHERE examen_id = :OLD.examen_id;
+
+    IF v_intentos_count > 0 AND (
+        :NEW.fecha_disponible <> :OLD.fecha_disponible OR
+        :NEW.fecha_limite <> :OLD.fecha_limite OR
+        :NEW.tiempo_limite <> :OLD.tiempo_limite OR
+        :NEW.cantidad_preguntas_mostrar <> :OLD.cantidad_preguntas_mostrar
+    ) THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No se puede modificar un examen que ya tiene intentos registrados');
+    END IF;
+END;
