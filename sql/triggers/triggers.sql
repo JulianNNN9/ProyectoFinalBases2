@@ -1,4 +1,3 @@
-
 /*==============================================================*/
 /* TRIGGERS                                                      */
 /*==============================================================*/
@@ -298,3 +297,28 @@ BEGIN
         :NEW.peso := 100 / v_total_preguntas;
     END IF;
 END;
+
+-- Trigger para validar cambios de visibilidad en preguntas
+CREATE OR REPLACE TRIGGER trg_validar_cambio_visibilidad
+BEFORE UPDATE OF es_publica ON Preguntas
+FOR EACH ROW
+DECLARE
+    v_examenes_publicos NUMBER;
+BEGIN
+    -- Si se está cambiando de pública a privada
+    IF :OLD.es_publica = 'S' AND :NEW.es_publica = 'N' THEN
+        -- Verificar si está siendo usada en exámenes activos
+        SELECT COUNT(*) INTO v_examenes_publicos
+        FROM Preguntas_Examenes pe
+        JOIN Examenes e ON pe.examen_id = e.examen_id
+        WHERE pe.pregunta_id = :OLD.pregunta_id
+        AND e.fecha_disponible <= SYSTIMESTAMP
+        AND (e.fecha_limite >= SYSTIMESTAMP OR e.fecha_limite IS NULL);
+        
+        -- No permitir cambiar a privada si está siendo usada en exámenes activos
+        IF v_examenes_publicos > 0 THEN
+            RAISE_APPLICATION_ERROR(-20102, 'No se puede cambiar a privada una pregunta en uso en exámenes activos');
+        END IF;
+    END IF;
+END;
+/

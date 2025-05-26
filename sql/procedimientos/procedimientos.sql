@@ -680,3 +680,197 @@ EXCEPTION
         ROLLBACK;
         p_resultado := 'ERROR DURANTE LA PRESENTACIÓN DEL EXAMEN: ' || SQLERRM;
 END;
+
+-- Cambiar visibilidad de pregunta
+CREATE OR REPLACE PROCEDURE sp_cambiar_visibilidad_pregunta(
+    p_pregunta_id IN NUMBER,
+    p_es_publica IN CHAR,
+    p_usuario_id IN NUMBER
+) AS
+    v_es_creador NUMBER;
+    v_es_admin NUMBER;
+    v_tiene_examenes NUMBER;
+BEGIN
+    -- Verificar si el usuario es el creador de la pregunta o un administrador
+    SELECT COUNT(*) INTO v_es_creador
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id
+    AND creador_id = p_usuario_id;
+    
+    SELECT COUNT(*) INTO v_es_admin
+    FROM Usuarios
+    WHERE usuario_id = p_usuario_id
+    AND tipo_usuario_id = (SELECT tipo_usuario_id FROM Tipo_Usuario WHERE descripcion = 'ADMINISTRADOR');
+    
+    -- Verificar si la pregunta está siendo usada en algún examen
+    SELECT COUNT(*) INTO v_tiene_examenes
+    FROM Preguntas_Examenes pe
+    JOIN Examenes e ON pe.examen_id = e.examen_id
+    WHERE pe.pregunta_id = p_pregunta_id;
+    
+    -- Solo permitir cambios si es el creador o un administrador
+    IF v_es_creador = 0 AND v_es_admin = 0 THEN
+        RAISE_APPLICATION_ERROR(-20100, 'No tienes permisos para cambiar la visibilidad de esta pregunta');
+    END IF;
+    
+    -- Si se quiere hacer privada una pregunta usada en exámenes, no permitirlo
+    IF p_es_publica = 'N' AND v_tiene_examenes > 0 THEN
+        RAISE_APPLICATION_ERROR(-20101, 'No se puede cambiar a privada una pregunta usada en exámenes');
+    END IF;
+    
+    -- Actualizar la visibilidad
+    UPDATE Preguntas
+    SET es_publica = p_es_publica
+    WHERE pregunta_id = p_pregunta_id;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/
+-- Procedimiento para configurar el número máximo de intentos de un examen
+CREATE OR REPLACE PROCEDURE sp_configurar_intentos_examen(
+    p_examen_id IN NUMBER,
+    p_max_intentos IN NUMBER,
+    p_profesor_id IN NUMBER
+) AS
+    v_es_profesor_curso NUMBER;
+    v_tiene_intentos NUMBER;
+BEGIN
+    -- Verificar que el profesor pertenezca al curso del examen
+    SELECT COUNT(*) INTO v_es_profesor_curso
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    WHERE e.examen_id = p_examen_id
+    AND g.profesor_id = p_profesor_id;
+    
+    IF v_es_profesor_curso = 0 THEN
+        RAISE_APPLICATION_ERROR(-20200, 'El profesor no está asignado al curso de este examen');
+    END IF;
+    
+    -- Verificar si el examen ya tiene intentos registrados
+    SELECT COUNT(*) INTO v_tiene_intentos
+    FROM Intentos_Examen
+    WHERE examen_id = p_examen_id;
+    
+    -- Si ya hay intentos, no permitir reducir el máximo por debajo de los ya realizados
+    IF v_tiene_intentos > 0 AND p_max_intentos < v_tiene_intentos THEN
+        RAISE_APPLICATION_ERROR(-20201, 'No se puede reducir el número máximo de intentos por debajo de los ya realizados');
+    END IF;
+    
+    -- Actualizar el número máximo de intentos
+    UPDATE Examenes
+    SET max_intentos = p_max_intentos
+    WHERE examen_id = p_examen_id;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/
+
+-- Corrección del procedimiento para obtener retroalimentación detallada
+CREATE OR REPLACE PROCEDURE sp_obtener_retroalimentacion_examen(
+    p_intento_id IN NUMBER,
+    p_retroalimentacion OUT SYS_REFCURSOR
+) AS
+BEGIN
+    -- Abrir cursor con la retroalimentación de preguntas incorrectas
+    OPEN p_retroalimentacion FOR
+    SELECT 
+        re.respuesta_estudiante_id,
+        pe.orden,
+        p.texto AS pregunta,
+        tp.descripcion AS tipo_pregunta,
+        -- Respuesta del estudiante (simplificada para evitar errores)
+        CASE 
+            WHEN p.tipo_pregunta_id IN (1, 2) THEN -- Opciones múltiple/única
+                'Ver detalle de opciones seleccionadas'
+            WHEN p.tipo_pregunta_id = 3 THEN -- Verdadero/Falso
+                'Ver respuesta V/F'
+            WHEN p.tipo_pregunta_id = 4 THEN -- Ordenamiento
+                'Ver orden seleccionado'
+            WHEN p.tipo_pregunta_id = 5 THEN -- Emparejamiento
+                'Ver emparejamientos realizados'
+            WHEN p.tipo_pregunta_id = 6 THEN -- Completar
+                'Ver texto ingresado'
+            ELSE
+                'No disponible'
+        END AS respuesta_estudiante,
+        -- Descripción general de la respuesta correcta
+        CASE 
+            WHEN p.tipo_pregunta_id IN (1, 2) THEN 
+                'Ver opciones correctas'
+            WHEN p.tipo_pregunta_id = 3 THEN
+                'Verdadero o Falso'
+            WHEN p.tipo_pregunta_id = 4 THEN
+                'Ver orden correcto'
+            WHEN p.tipo_pregunta_id = 5 THEN
+                'Ver emparejamientos correctos'
+            WHEN p.tipo_pregunta_id = 6 THEN
+                'Ver texto correcto'
+            ELSE
+                'No disponible'
+        END AS respuesta_correcta,
+        -- Convertir CLOB a VARCHAR2 para evitar errores de tipo
+        DBMS_LOB.SUBSTR(p.retroalimentacion, 4000, 1) AS retroalimentacion,
+        re.puntaje_obtenido,
+        pe.peso AS puntaje_maximo
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+    JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
+    WHERE re.intento_examen_id = p_intento_id
+    AND re.es_correcta = 'N'
+    ORDER BY pe.orden;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        IF p_retroalimentacion%ISOPEN THEN
+            CLOSE p_retroalimentacion;
+        END IF;
+        RAISE;
+END;
+/
+
+-- Procedimiento corregido para configurar retroalimentación de una pregunta
+CREATE OR REPLACE PROCEDURE sp_configurar_retroalimentacion(
+    p_pregunta_id IN NUMBER,
+    p_retroalimentacion IN CLOB,
+    p_usuario_id IN NUMBER
+) AS
+    v_es_creador NUMBER;
+    v_es_admin NUMBER;
+BEGIN
+    -- Verificar si el usuario es el creador de la pregunta o un administrador
+    SELECT COUNT(*) INTO v_es_creador
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id
+    AND creador_id = p_usuario_id;
+    
+    SELECT COUNT(*) INTO v_es_admin
+    FROM Usuarios
+    WHERE usuario_id = p_usuario_id
+    AND tipo_usuario_id = (SELECT tipo_usuario_id FROM Tipo_Usuario WHERE descripcion = 'ADMINISTRADOR');
+    
+    -- Solo permitir cambios si es el creador o un administrador
+    IF v_es_creador = 0 AND v_es_admin = 0 THEN
+        RAISE_APPLICATION_ERROR(-20300, 'No tienes permisos para modificar esta pregunta');
+    END IF;
+    
+    -- Actualizar la retroalimentación (eliminada la columna fecha_modificacion)
+    UPDATE Preguntas
+    SET retroalimentacion = p_retroalimentacion
+    WHERE pregunta_id = p_pregunta_id;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/

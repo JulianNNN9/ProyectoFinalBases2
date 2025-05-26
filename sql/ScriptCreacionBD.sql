@@ -460,3 +460,9 @@ JOIN Grupos g           ON e.grupo_id   = g.grupo_id
 JOIN Cursos c           ON g.curso_id   = c.curso_id
 JOIN Intentos_Examen ie ON e.examen_id  = ie.examen_id
 GROUP BY c.curso_id, c.nombre;
+
+-- Agregar columna max_intentos a la tabla Examenes (ejecutar este ALTER TABLE)
+ALTER TABLE Examenes ADD (max_intentos NUMBER DEFAULT 1);
+
+-- Agregar columna retroalimentacion a la tabla Preguntas (ejecutar este ALTER TABLE)
+ALTER TABLE Preguntas ADD (retroalimentacion CLOB);

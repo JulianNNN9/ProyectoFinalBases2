@@ -564,3 +564,59 @@ EXCEPTION
 END fn_verificar_elegibilidad_pregunta;
 
 /
+
+-- Modificación de la función fn_verificar_elegibilidad para controlar intentos
+CREATE OR REPLACE FUNCTION fn_verificar_elegibilidad(
+  p_estudiante_id IN NUMBER,
+  p_examen_id IN NUMBER
+) RETURN VARCHAR2 IS
+  v_grupo_id NUMBER;
+  v_inscrito NUMBER := 0;
+  v_fecha_actual TIMESTAMP;
+  v_fecha_disponible TIMESTAMP;
+  v_fecha_limite TIMESTAMP;
+  v_intentos_realizados NUMBER := 0;
+  v_max_intentos NUMBER := 1;
+  v_resultado VARCHAR2(200);
+BEGIN
+  -- Verificar fechas del examen y máximo de intentos permitidos
+  SELECT fecha_disponible, fecha_limite, grupo_id, NVL(max_intentos, 1)
+  INTO v_fecha_disponible, v_fecha_limite, v_grupo_id, v_max_intentos
+  FROM Examenes
+  WHERE examen_id = p_examen_id;
+  
+  -- Verificar inscripción en el grupo
+  SELECT COUNT(*)
+  INTO v_inscrito
+  FROM Inscripciones
+  WHERE estudiante_id = p_estudiante_id AND grupo_id = v_grupo_id;
+  
+  IF v_inscrito = 0 THEN
+    RETURN 'ERROR: El estudiante no está inscrito en este curso';
+  END IF;
+  
+  -- Verificar fecha actual
+  v_fecha_actual := SYSTIMESTAMP;
+  
+  IF v_fecha_actual < v_fecha_disponible THEN
+    RETURN 'ERROR: El examen aún no está disponible. Disponible desde: ' || TO_CHAR(v_fecha_disponible, 'DD-MM-YYYY HH24:MI');
+  END IF;
+  
+  IF v_fecha_actual > v_fecha_limite THEN
+    RETURN 'ERROR: El período para realizar el examen ha terminado. Fecha límite: ' || TO_CHAR(v_fecha_limite, 'DD-MM-YYYY HH24:MI');
+  END IF;
+  
+  -- Verificar intentos previos
+  SELECT COUNT(*)
+  INTO v_intentos_realizados
+  FROM Intentos_Examen
+  WHERE estudiante_id = p_estudiante_id AND examen_id = p_examen_id;
+  
+  -- Verificar si se excedió el número máximo de intentos
+  IF v_intentos_realizados >= v_max_intentos THEN
+    RETURN 'ERROR: Has excedido el número máximo de intentos permitidos (' || v_max_intentos || ')';
+  END IF;
+  
+  RETURN 'ELEGIBLE';
+END;
+/
