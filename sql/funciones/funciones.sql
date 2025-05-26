@@ -795,3 +795,44 @@ EXCEPTION
         RETURN 'ERROR: Datos no encontrados';
 END;
 /
+
+CREATE OR REPLACE FUNCTION FN_PREGUNTA_PERTENECE_EXAMEN(
+    p_pregunta_id IN NUMBER,
+    p_examen_id IN NUMBER
+) RETURN BOOLEAN IS
+    v_tema_id NUMBER;
+    v_curso_id NUMBER;
+    v_count NUMBER := 0;
+BEGIN
+    -- Obtener el tema de la pregunta
+    BEGIN
+        SELECT tema_id INTO v_tema_id
+        FROM Preguntas
+        WHERE pregunta_id = p_pregunta_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN FALSE;
+    END;
+    
+    -- Obtener el curso asociado al examen
+    BEGIN
+        SELECT c.curso_id INTO v_curso_id
+        FROM Examenes e
+        JOIN Grupos g ON e.grupo_id = g.grupo_id
+        JOIN Cursos c ON g.curso_id = c.curso_id
+        WHERE e.examen_id = p_examen_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN FALSE;
+    END;
+    
+    -- Verificar si el tema está asociado al curso
+    SELECT COUNT(*) INTO v_count
+    FROM Unidades u
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    WHERE u.curso_id = v_curso_id
+    AND ut.tema_id = v_tema_id;
+    
+    RETURN (v_count > 0);
+END;
+/
