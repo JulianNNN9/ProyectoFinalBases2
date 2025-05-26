@@ -184,9 +184,17 @@ END;
 -- Procedimiento para actualizar preguntas compuestas
 CREATE OR REPLACE PROCEDURE sp_actualizar_preguntas_compuestas(
     p_pregunta_principal_id IN NUMBER,
-    p_cantidad_subpreguntas IN NUMBER
+    p_cantidad_subpreguntas IN NUMBER,
+    p_retroalimentacion IN CLOB DEFAULT NULL -- Nuevo parámetro
 ) AS
 BEGIN
+    -- Actualizar retroalimentación si se proporciona
+    IF p_retroalimentacion IS NOT NULL THEN
+        UPDATE Preguntas
+        SET retroalimentacion = p_retroalimentacion
+        WHERE pregunta_id = p_pregunta_principal_id;
+    END IF;
+    
     IF p_cantidad_subpreguntas > 0 THEN
         -- Seleccionar subpreguntas del mismo tema
         UPDATE Preguntas
@@ -534,14 +542,15 @@ CREATE OR REPLACE PROCEDURE sp_agregar_pregunta_examen(
     p_pregunta_id IN NUMBER,
     p_examen_id IN NUMBER,
     p_peso IN NUMBER DEFAULT NULL,
-    p_orden IN NUMBER DEFAULT NULL
+    p_orden IN NUMBER DEFAULT NULL,
+    p_retroalimentacion IN CLOB DEFAULT NULL -- Nuevo parámetro
 ) AS
     v_es_profesor_curso NUMBER;
     v_max_orden NUMBER;
     v_peso_default NUMBER;
     v_pregunta_examen_id NUMBER;
 BEGIN
-    -- Verificar que el profesor pertenezca al curso del examen
+    -- Verificar que el profesor pertenzca al curso del examen
     SELECT COUNT(*) INTO v_es_profesor_curso
     FROM Examenes e
     JOIN Grupos g ON e.grupo_id = g.grupo_id
@@ -550,6 +559,13 @@ BEGIN
     
     IF v_es_profesor_curso = 0 THEN
         RAISE_APPLICATION_ERROR(-20003, 'El profesor no está asignado al curso de este examen');
+    END IF;
+    
+    -- Actualizar retroalimentación si se proporciona
+    IF p_retroalimentacion IS NOT NULL THEN
+        UPDATE Preguntas
+        SET retroalimentacion = p_retroalimentacion
+        WHERE pregunta_id = p_pregunta_id;
     END IF;
     
     -- Obtener el siguiente orden si no se especifica
@@ -612,7 +628,26 @@ create or replace PROCEDURE sp_presentar_examen_estudiante (
     v_fecha_fin        TIMESTAMP;
     v_msg_tiempo       VARCHAR2(200);
     v_examen_valido    BOOLEAN := FALSE;
+    v_intentos_actuales NUMBER;
+    v_max_intentos     NUMBER;
 BEGIN
+    -- Verificar número de intentos permitidos vs. realizados
+    SELECT COUNT(*)
+    INTO v_intentos_actuales
+    FROM Intentos_Examen
+    WHERE estudiante_id = p_estudiante_id
+    AND examen_id = p_examen_id;
+    
+    SELECT NVL(max_intentos, 1)
+    INTO v_max_intentos
+    FROM Examenes
+    WHERE examen_id = p_examen_id;
+    
+    IF v_intentos_actuales >= v_max_intentos THEN
+        p_resultado := 'ERROR: Has excedido el número máximo de intentos permitidos para este examen';
+        RETURN;
+    END IF;
+
     -- 1. Validar elegibilidad
     v_elegibilidad := fn_verificar_elegibilidad(p_estudiante_id, p_examen_id);
 
@@ -672,7 +707,8 @@ BEGIN
     sp_calificar_examen_completo(v_intento_id);
 
     -- 6. Notificar resultado al estudiante
-    p_resultado := 'EXAMEN FINALIZADO Y CALIFICADO CORRECTAMENTE.';
+    p_resultado := 'EXAMEN FINALIZADO Y CALIFICADO CORRECTAMENTE. Intentos utilizados: ' || 
+                   (v_intentos_actuales + 1) || ' de ' || v_max_intentos;
 
     COMMIT;
 EXCEPTION
@@ -680,12 +716,13 @@ EXCEPTION
         ROLLBACK;
         p_resultado := 'ERROR DURANTE LA PRESENTACIÓN DEL EXAMEN: ' || SQLERRM;
 END;
-
+/
 -- Cambiar visibilidad de pregunta
 CREATE OR REPLACE PROCEDURE sp_cambiar_visibilidad_pregunta(
     p_pregunta_id IN NUMBER,
     p_es_publica IN CHAR,
-    p_usuario_id IN NUMBER
+    p_usuario_id IN NUMBER,
+    p_retroalimentacion IN CLOB DEFAULT NULL -- Nuevo parámetro
 ) AS
     v_es_creador NUMBER;
     v_es_admin NUMBER;
@@ -718,9 +755,10 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20101, 'No se puede cambiar a privada una pregunta usada en exámenes');
     END IF;
     
-    -- Actualizar la visibilidad
+    -- Actualizar la visibilidad y retroalimentación si se proporciona
     UPDATE Preguntas
-    SET es_publica = p_es_publica
+    SET es_publica = p_es_publica,
+        retroalimentacion = NVL(p_retroalimentacion, retroalimentacion)
     WHERE pregunta_id = p_pregunta_id;
     
     COMMIT;
@@ -786,7 +824,7 @@ BEGIN
         pe.orden,
         p.texto AS pregunta,
         tp.descripcion AS tipo_pregunta,
-        -- Respuesta del estudiante (simplificada para evitar errores)
+        -- Respuesta del estudiante (simplificada para evitar errores de tipo)
         CASE 
             WHEN p.tipo_pregunta_id IN (1, 2) THEN -- Opciones múltiple/única
                 'Ver detalle de opciones seleccionadas'
@@ -816,7 +854,7 @@ BEGIN
             ELSE
                 'No disponible'
         END AS respuesta_correcta,
-        -- Convertir CLOB a VARCHAR2 para evitar errores de tipo
+        -- Convertir CLOB a VARCHAR2 para evitar errores
         DBMS_LOB.SUBSTR(p.retroalimentacion, 4000, 1) AS retroalimentacion,
         re.puntaje_obtenido,
         pe.peso AS puntaje_maximo
@@ -874,3 +912,232 @@ EXCEPTION
         RAISE;
 END;
 /
+
+-- Procedimiento para mostrar el progreso de un estudiante en un curso
+CREATE OR REPLACE PROCEDURE sp_progreso_estudiante (
+    p_estudiante_id IN NUMBER,
+    p_curso_id IN NUMBER,
+    p_progreso OUT SYS_REFCURSOR
+) AS
+BEGIN
+    OPEN p_progreso FOR
+    SELECT 
+        e.examen_id,
+        e.descripcion AS examen_descripcion,
+        MAX(ie.puntaje_total) AS mejor_puntaje,
+        COUNT(ie.intento_examen_id) AS intentos_realizados,
+        e.max_intentos AS intentos_permitidos,
+        CASE 
+            WHEN MAX(ie.puntaje_total) >= e.umbral_aprobacion THEN 'APROBADO'
+            WHEN COUNT(ie.intento_examen_id) >= e.max_intentos THEN 'REPROBADO'
+            ELSE 'PENDIENTE'
+        END AS estado
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Inscripciones i ON g.grupo_id = i.grupo_id
+    LEFT JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id AND ie.estudiante_id = p_estudiante_id
+    WHERE i.estudiante_id = p_estudiante_id
+    AND g.curso_id = p_curso_id
+    GROUP BY e.examen_id, e.descripcion, e.max_intentos, e.umbral_aprobacion
+    ORDER BY e.fecha_creacion;
+END;
+/
+
+-- Reporte de desempeño de estudiante
+CREATE OR REPLACE PROCEDURE sp_reporte_desempeno_estudiante (
+    p_estudiante_id IN NUMBER,
+    p_examen_id IN NUMBER,
+    p_intento_id IN NUMBER DEFAULT NULL,
+    p_reporte OUT SYS_REFCURSOR
+) AS
+    v_intento_id NUMBER;
+BEGIN
+    -- Si no se especifica un intento, usar el último
+    IF p_intento_id IS NULL THEN
+        SELECT MAX(intento_examen_id)
+        INTO v_intento_id
+        FROM Intentos_Examen
+        WHERE estudiante_id = p_estudiante_id
+        AND examen_id = p_examen_id;
+    ELSE
+        v_intento_id := p_intento_id;
+    END IF;
+    
+    -- Generar reporte detallado
+    OPEN p_reporte FOR
+    SELECT 
+        pe.orden,
+        p.texto AS pregunta,
+        tp.descripcion AS tipo_pregunta,
+        re.es_correcta,
+        re.puntaje_obtenido,
+        p.retroalimentacion,
+        ie.puntaje_total AS puntaje_examen,
+        e.max_intentos,
+        (SELECT COUNT(*) FROM Intentos_Examen 
+         WHERE estudiante_id = p_estudiante_id 
+         AND examen_id = p_examen_id) AS intentos_utilizados,
+        CASE 
+            WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 'APROBADO'
+            WHEN (SELECT COUNT(*) FROM Intentos_Examen 
+                 WHERE estudiante_id = p_estudiante_id 
+                 AND examen_id = p_examen_id) >= e.max_intentos THEN 'REPROBADO'
+            ELSE 'PUEDE REINTENTAR'
+        END AS estado_final
+    FROM Respuestas_Estudiantes re
+    JOIN Preguntas_Examenes pe ON re.pregunta_examen_id = pe.pregunta_examen_id
+    JOIN Preguntas p ON pe.pregunta_id = p.pregunta_id
+    JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
+    JOIN Intentos_Examen ie ON re.intento_examen_id = ie.intento_examen_id
+    JOIN Examenes e ON ie.examen_id = e.examen_id
+    WHERE re.intento_examen_id = v_intento_id
+    ORDER BY pe.orden;
+END;
+/
+
+-- Procedimiento para configurar el número máximo de intentos de un examen
+CREATE OR REPLACE PROCEDURE sp_configurar_intentos_examen(
+    p_examen_id IN NUMBER,
+    p_max_intentos IN NUMBER,
+    p_profesor_id IN NUMBER
+) AS
+    v_es_profesor_curso NUMBER;
+    v_tiene_intentos NUMBER;
+BEGIN
+    -- Verificar que el profesor pertenezca al curso del examen
+    SELECT COUNT(*) INTO v_es_profesor_curso
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    WHERE e.examen_id = p_examen_id
+    AND g.profesor_id = p_profesor_id;
+    
+    IF v_es_profesor_curso = 0 THEN
+        RAISE_APPLICATION_ERROR(-20200, 'El profesor no está asignado al curso de este examen');
+    END IF;
+    
+    -- Verificar si el examen ya tiene intentos registrados
+    SELECT COUNT(*) INTO v_tiene_intentos
+    FROM Intentos_Examen
+    WHERE examen_id = p_examen_id;
+    
+    -- Si ya hay intentos, no permitir reducir el máximo por debajo de los ya realizados
+    IF v_tiene_intentos > 0 AND p_max_intentos < v_tiene_intentos THEN
+        RAISE_APPLICATION_ERROR(-20201, 'No se puede reducir el número máximo de intentos por debajo de los ya realizados');
+    END IF;
+    
+    -- Actualizar el número máximo de intentos
+    UPDATE Examenes
+    SET max_intentos = p_max_intentos
+    WHERE examen_id = p_examen_id;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/
+
+-- Procedimiento para configurar retroalimentación de una pregunta
+CREATE OR REPLACE PROCEDURE sp_configurar_retroalimentacion(
+    p_pregunta_id IN NUMBER,
+    p_retroalimentacion IN CLOB,
+    p_usuario_id IN NUMBER
+) AS
+    v_es_creador NUMBER;
+    v_es_admin NUMBER;
+BEGIN
+    -- Verificar si el usuario es el creador de la pregunta o un administrador
+    SELECT COUNT(*) INTO v_es_creador
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id
+    AND creador_id = p_usuario_id;
+    
+    SELECT COUNT(*) INTO v_es_admin
+    FROM Usuarios
+    WHERE usuario_id = p_usuario_id
+    AND tipo_usuario_id = (SELECT tipo_usuario_id FROM Tipo_Usuario WHERE descripcion = 'ADMINISTRADOR');
+    
+    -- Solo permitir cambios si es el creador o un administrador
+    IF v_es_creador = 0 AND v_es_admin = 0 THEN
+        RAISE_APPLICATION_ERROR(-20300, 'No tienes permisos para modificar esta pregunta');
+    END IF;
+    
+    -- Actualizar la retroalimentación
+    UPDATE Preguntas
+    SET retroalimentacion = p_retroalimentacion
+    WHERE pregunta_id = p_pregunta_id;
+    
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/
+
+-- Procedimiento para actualizar preguntas compuestas
+CREATE OR REPLACE NONEDITIONABLE PROCEDURE actualizar_preguntas_compuestas(
+    p_pregunta_id IN NUMBER,
+    p_texto IN VARCHAR2,
+    p_es_publica IN CHAR DEFAULT 'S',
+    p_retroalimentacion IN CLOB DEFAULT NULL,
+    p_subpreguntas IN SYS_REFCURSOR
+) AS
+    v_subpregunta_id NUMBER;
+    v_texto_subpregunta VARCHAR2(4000);
+    v_tipo_pregunta_id NUMBER;
+    v_retroalimentacion_subpregunta CLOB;
+    v_next_id NUMBER;
+BEGIN
+    -- Actualizar la pregunta compuesta principal
+    UPDATE Preguntas
+    SET texto = p_texto,
+        es_publica = p_es_publica,
+        retroalimentacion = p_retroalimentacion
+    WHERE pregunta_id = p_pregunta_id;
+
+    -- Procesar cada subpregunta
+    LOOP
+        FETCH p_subpreguntas INTO v_subpregunta_id, v_texto_subpregunta, 
+                                 v_tipo_pregunta_id, v_retroalimentacion_subpregunta;
+        EXIT WHEN p_subpreguntas%NOTFOUND;
+
+        -- Si la subpregunta ya existe, actualizarla
+        IF v_subpregunta_id IS NOT NULL THEN
+            UPDATE Preguntas
+            SET texto = v_texto_subpregunta,
+                tipo_pregunta_id = v_tipo_pregunta_id,
+                retroalimentacion = v_retroalimentacion_subpregunta
+            WHERE pregunta_id = v_subpregunta_id;
+        -- Si es nueva, crearla
+        ELSE
+            -- Obtener el siguiente ID para pregunta
+            SELECT NVL(MAX(pregunta_id), 0) + 1 
+            INTO v_next_id 
+            FROM Preguntas;
+
+            INSERT INTO Preguntas (
+                pregunta_id, 
+                texto, 
+                tipo_pregunta_id, 
+                es_publica, 
+                pregunta_padre_id,
+                retroalimentacion
+            ) VALUES (
+                v_next_id, 
+                v_texto_subpregunta, 
+                v_tipo_pregunta_id, 
+                p_es_publica, 
+                p_pregunta_id,
+                v_retroalimentacion_subpregunta
+            );
+        END IF;
+    END LOOP;
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;

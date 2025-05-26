@@ -102,6 +102,7 @@ BEFORE INSERT ON Preguntas_Examenes
 FOR EACH ROW
 DECLARE
   v_pertenece BOOLEAN;
+  v_retroalimentacion CLOB;
 BEGIN
   -- Verificar que la pregunta pertenezca a los temas del curso del examen
   v_pertenece := fn_pregunta_pertenece_examen(:NEW.pregunta_id, :NEW.examen_id);
@@ -109,6 +110,23 @@ BEGIN
   IF NOT v_pertenece THEN
     RAISE_APPLICATION_ERROR(-20007, 'La pregunta no pertenece a los temas del curso asociado al examen');
   END IF;
+  
+  -- Verificar si la pregunta tiene retroalimentación
+  BEGIN
+    SELECT retroalimentacion
+    INTO v_retroalimentacion
+    FROM Preguntas
+    WHERE pregunta_id = :NEW.pregunta_id;
+    
+    -- Advertencia si no hay retroalimentación (podría usar un log en lugar de dbms_output)
+    IF v_retroalimentacion IS NULL THEN
+      dbms_output.put_line('Advertencia: La pregunta ' || :NEW.pregunta_id || 
+                           ' no tiene retroalimentación definida');
+    END IF;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20009, 'La pregunta especificada no existe');
+  END;
 END;
 /
 
@@ -182,10 +200,11 @@ END;
 CREATE OR REPLACE TRIGGER trg_completar_examen
 AFTER UPDATE ON Examenes
 FOR EACH ROW
-WHEN (NEW.fecha_disponible IS NOT NULL AND OLD.fecha_disponible IS NULL)
+WHEN (NEW.fecha_disponible IS NOT NULL AND 
+     (OLD.fecha_disponible IS NULL OR NEW.max_intentos != OLD.max_intentos))
 BEGIN
-    -- Si se está configurando la fecha disponible, asumir que está listo para publicar
-    -- y validar/completar el examen
+    -- Si se está configurando la fecha disponible o cambiando max_intentos,
+    -- asumir que está listo para publicar y validar/completar el examen
     sp_validar_completar_examen(:NEW.examen_id);
 END;
 /

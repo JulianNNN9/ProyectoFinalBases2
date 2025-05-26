@@ -26,13 +26,19 @@ CREATE OR REPLACE FUNCTION fn_pregunta_pertenece_examen(
   v_count NUMBER;
   v_padre_id NUMBER;
   v_padre_pertenece BOOLEAN := FALSE;
+  v_retroalimentacion CLOB;
 BEGIN
   -- Primero verificar si es una subpregunta
-  SELECT pregunta_padre_id
-  INTO v_padre_id
-  FROM Preguntas
-  WHERE pregunta_id = p_pregunta_id
-  AND pregunta_padre_id IS NOT NULL;
+  BEGIN
+    SELECT pregunta_padre_id, retroalimentacion
+    INTO v_padre_id, v_retroalimentacion
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      v_padre_id := NULL;
+      v_retroalimentacion := NULL;
+  END;
   
   -- Si tiene padre, verificar si el padre pertenece al examen
   IF v_padre_id IS NOT NULL THEN
@@ -441,11 +447,13 @@ CREATE OR REPLACE FUNCTION fn_calcular_puntaje_compuesto(
     v_subpreguntas_correctas NUMBER := 0;
     v_peso_pregunta_padre NUMBER;
     v_pregunta_examen_id NUMBER;
+    v_max_intentos NUMBER;
 BEGIN
     -- Obtener el peso y ID de la pregunta compuesta
-    SELECT pe.peso, pe.pregunta_examen_id
-    INTO v_peso_pregunta_padre, v_pregunta_examen_id
+    SELECT pe.peso, pe.pregunta_examen_id, e.max_intentos
+    INTO v_peso_pregunta_padre, v_pregunta_examen_id, v_max_intentos
     FROM Preguntas_Examenes pe
+    JOIN Examenes e ON pe.examen_id = e.examen_id
     WHERE pe.pregunta_id = p_pregunta_id
     AND pe.examen_id = (SELECT examen_id FROM Intentos_Examen WHERE intento_examen_id = p_intento_id);
     
@@ -618,5 +626,172 @@ BEGIN
   END IF;
   
   RETURN 'ELEGIBLE';
+END;
+/
+
+-- Analisis de dificultad de preguntas
+CREATE OR REPLACE FUNCTION analisis_dificultad_preguntas(
+    p_curso_id IN NUMBER
+) RETURN SYS_REFCURSOR IS
+    v_cursor SYS_REFCURSOR;
+BEGIN
+    OPEN v_cursor FOR
+        SELECT 
+            p.pregunta_id,
+            p.texto,
+            p.retroalimentacion,
+            t.nombre AS tema,
+            tp.descripcion AS tipo_pregunta,
+            COUNT(DISTINCT ie.intento_examen_id) AS total_intentos,
+            SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) AS respuestas_correctas,
+            ROUND((SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
+                  COUNT(DISTINCT ie.intento_examen_id)) * 100, 2) AS porcentaje_acierto,
+            CASE 
+                WHEN (SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
+                     COUNT(DISTINCT ie.intento_examen_id)) * 100 < 30 THEN 'DIFÍCIL'
+                WHEN (SUM(CASE WHEN re.es_correcta = 'S' THEN 1 ELSE 0 END) / 
+                     COUNT(DISTINCT ie.intento_examen_id)) * 100 < 70 THEN 'MODERADA'
+                ELSE 'FÁCIL'
+            END AS dificultad
+        FROM Preguntas p
+        JOIN Temas t ON p.tema_id = t.tema_id
+        JOIN Tipo_Preguntas tp ON p.tipo_pregunta_id = tp.tipo_pregunta_id
+        JOIN Unidades_Temas ut ON t.tema_id = ut.tema_id
+        JOIN Unidades u ON ut.unidad_id = u.unidad_id
+        JOIN Preguntas_Examenes pe ON p.pregunta_id = pe.pregunta_id
+        JOIN Examenes e ON pe.examen_id = e.examen_id
+        JOIN Grupos g ON e.grupo_id = g.grupo_id
+        JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id
+        JOIN Respuestas_Estudiantes re ON ie.intento_examen_id = re.intento_examen_id AND pe.pregunta_examen_id = re.pregunta_examen_id
+        WHERE g.curso_id = p_curso_id
+        GROUP BY p.pregunta_id, p.texto, p.retroalimentacion, t.nombre, tp.descripcion
+        ORDER BY porcentaje_acierto;
+    
+    RETURN v_cursor;
+END;
+/
+
+CREATE OR REPLACE FUNCTION estadisticas_curso(
+    p_curso_id IN NUMBER
+) RETURN SYS_REFCURSOR IS
+    v_cursor SYS_REFCURSOR;
+BEGIN
+    OPEN v_cursor FOR
+        SELECT 
+            c.curso_id,
+            c.nombre AS curso,
+            g.grupo_id,
+            g.nombre AS grupo,
+            e.examen_id,
+            e.descripcion AS examen,
+            e.max_intentos,
+            COUNT(DISTINCT ie.estudiante_id) AS total_estudiantes,
+            COUNT(ie.intento_examen_id) AS total_intentos,
+            ROUND(AVG(ie.puntaje_total), 2) AS promedio,
+            MIN(ie.puntaje_total) AS minimo,
+            MAX(ie.puntaje_total) AS maximo,
+            ROUND(STDDEV(ie.puntaje_total), 2) AS desviacion_estandar,
+            SUM(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 ELSE 0 END) AS aprobados,
+            SUM(CASE WHEN ie.puntaje_total < e.umbral_aprobacion THEN 1 ELSE 0 END) AS reprobados,
+            ROUND((SUM(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 ELSE 0 END) / 
+                  COUNT(ie.intento_examen_id)) * 100, 2) AS porcentaje_aprobacion
+        FROM Cursos c
+        JOIN Grupos g ON c.curso_id = g.curso_id
+        JOIN Examenes e ON g.grupo_id = e.grupo_id
+        JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id
+        WHERE c.curso_id = p_curso_id
+        GROUP BY c.curso_id, c.nombre, g.grupo_id, g.nombre, e.examen_id, e.descripcion, e.max_intentos, e.umbral_aprobacion
+        ORDER BY g.nombre, e.descripcion;
+    
+    RETURN v_cursor;
+END;
+/
+
+CREATE OR REPLACE FUNCTION rendimiento_grupos(
+    p_curso_id IN NUMBER
+) RETURN SYS_REFCURSOR IS
+    v_cursor SYS_REFCURSOR;
+BEGIN
+    OPEN v_cursor FOR
+        SELECT 
+            g.grupo_id,
+            g.nombre AS grupo,
+            u.nombre || ' ' || u.apellido AS profesor,
+            COUNT(DISTINCT i.estudiante_id) AS total_estudiantes,
+            COUNT(DISTINCT e.examen_id) AS total_examenes,
+            COUNT(ie.intento_examen_id) AS total_intentos,
+            ROUND(AVG(ie.puntaje_total), 2) AS promedio_grupo,
+            SUM(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 ELSE 0 END) AS aprobados,
+            SUM(CASE WHEN ie.puntaje_total < e.umbral_aprobacion THEN 1 ELSE 0 END) AS reprobados,
+            ROUND((SUM(CASE WHEN ie.puntaje_total >= e.umbral_aprobacion THEN 1 ELSE 0 END) / 
+                  COUNT(ie.intento_examen_id)) * 100, 2) AS porcentaje_aprobacion,
+            MAX(e.max_intentos) AS max_intentos_permitidos,
+            ROUND(COUNT(ie.intento_examen_id) / COUNT(DISTINCT i.estudiante_id), 2) AS promedio_intentos_estudiante
+        FROM Grupos g
+        JOIN Cursos c ON g.curso_id = c.curso_id
+        JOIN Usuarios u ON g.profesor_id = u.usuario_id
+        JOIN Inscripciones i ON g.grupo_id = i.grupo_id
+        JOIN Examenes e ON g.grupo_id = e.grupo_id
+        JOIN Intentos_Examen ie ON e.examen_id = ie.examen_id AND i.estudiante_id = ie.estudiante_id
+        WHERE c.curso_id = p_curso_id
+        GROUP BY g.grupo_id, g.nombre, u.nombre || ' ' || u.apellido
+        ORDER BY promedio_grupo DESC;
+    
+    RETURN v_cursor;
+END;
+/
+
+-- Función para verificar si una pregunta es elegible para un examen
+CREATE OR REPLACE FUNCTION verificar_eligibilidad_pregunta(
+    p_pregunta_id IN NUMBER,
+    p_examen_id IN NUMBER,
+    p_estudiante_id IN NUMBER
+) RETURN VARCHAR2 IS
+    v_tema_id NUMBER;
+    v_curso_id NUMBER;
+    v_es_elegible NUMBER := 0;
+    v_intentos_realizados NUMBER := 0;
+    v_max_intentos NUMBER := 1;
+    v_retroalimentacion CLOB;
+BEGIN
+    -- Obtener datos de la pregunta
+    SELECT tema_id, retroalimentacion
+    INTO v_tema_id, v_retroalimentacion
+    FROM Preguntas
+    WHERE pregunta_id = p_pregunta_id;
+    
+    -- Obtener el curso del examen y máximo de intentos
+    SELECT c.curso_id, e.max_intentos
+    INTO v_curso_id, v_max_intentos
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    WHERE e.examen_id = p_examen_id;
+    
+    -- Verificar si el tema está en el curso
+    SELECT COUNT(*) INTO v_es_elegible
+    FROM Unidades u
+    JOIN Unidades_Temas ut ON u.unidad_id = ut.unidad_id
+    WHERE u.curso_id = v_curso_id
+    AND ut.tema_id = v_tema_id;
+    
+    -- Verificar intentos del estudiante
+    SELECT COUNT(*)
+    INTO v_intentos_realizados
+    FROM Intentos_Examen
+    WHERE estudiante_id = p_estudiante_id
+    AND examen_id = p_examen_id;
+    
+    -- Verificar elegibilidad
+    IF v_es_elegible = 0 THEN
+        RETURN 'ERROR: La pregunta no pertenece a los temas del curso';
+    ELSIF v_intentos_realizados >= v_max_intentos THEN
+        RETURN 'ERROR: Has excedido el número máximo de intentos permitidos (' || v_max_intentos || ')';
+    ELSE
+        RETURN 'ELEGIBLE';
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'ERROR: Datos no encontrados';
 END;
 /
