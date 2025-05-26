@@ -1,0 +1,369 @@
+/* --------------------------
+   Estilos Globales
+   -------------------------- */
+QWidget {
+    background-color: #f0f8ff; /* AliceBlue */
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: #333333;
+}
+
+/* --------------------------
+   QGroupBox para seccionar
+   -------------------------- */
+QGroupBox {
+    font-size: 16px;
+    font-weight: bold;
+    color: #4169e1; /* RoyalBlue */
+    border: 1px solid #87cefa; /* LightSkyBlue */
+    border-radius: 5px;
+    margin-top: 10px; /* Espacio arriba del borde */
+    padding-top: 20px; /* Espacio para el título dentro del borde */
+    background-color: #e6f2ff; /* Un azul muy claro para el fondo del groupbox */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    left: 10px;
+    color: #4169e1; /* RoyalBlue */
+}
+
+/* --------------------------
+   Cabeceras de sección (si no usas QGroupBox para todo)
+   -------------------------- */
+QLabel.section-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #4169e1; /* RoyalBlue */
+    margin-top: 10px;
+    margin-bottom: 8px;
+}
+
+/* --------------------------
+   Área de Pregunta (texto largo)
+   -------------------------- */
+QTextEdit#questionText,
+QTextEdit#examDescription,
+QTextEdit#questionCreationText {
+    background-color: #ffffff;
+    border: 1px solid #87cefa; /* LightSkyBlue */
+    padding: 8px;
+    border-radius: 5px;
+    min-height: 80px;
+}
+
+/* --------------------------
+   Opciones de Respuesta
+   -------------------------- */
+QRadioButton,
+QCheckBox {
+    spacing: 8px;
+    font-size: 14px;
+    color: #333333;
+    margin: 5px 0;
+}
+QRadioButton::indicator,
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+}
+QRadioButton::indicator:unchecked,
+QCheckBox::indicator:unchecked {
+    border: 2px solid #87cefa; /* LightSkyBlue */
+    background: #ffffff;
+}
+QRadioButton::indicator:checked,
+QCheckBox::indicator:checked {
+    background-color: #4682b4; /* SteelBlue */
+    border: 2px solid #4682b4; /* SteelBlue */
+}
+QRadioButton::indicator:checked {
+    border-radius: 9px; /* Circular for radio */
+}
+QCheckBox::indicator:unchecked {
+    border-radius: 3px; /* Square for checkbox */
+}
+QCheckBox::indicator:checked {
+    border-radius: 3px;
+}
+
+/* --------------------------
+   Respuestas correctas / incorrectas (feedback)
+   -------------------------- */
+QWidget[answerState="correct"] {
+    background-color: #e0f2f1; /* verde muy suave */
+}
+QWidget[answerState="wrong"] {
+    background-color: #ffebee; /* rojo muy suave */
+}
+
+/* --------------------------
+   Tabla de resultados parciales
+   -------------------------- */
+QTableWidget#resultsTable {
+    background-color: #e0f7fa; /* Cyan muy claro */
+    gridline-color: #87cefa; /* LightSkyBlue */
+    alternate-background-color: #b3e5fc; /* LightSkyBlue más claro */
+    color: #000000;
+    border: 1px solid #87cefa;
+    border-radius: 5px;
+}
+QTableWidget#resultsTable QHeaderView::section {
+    background-color: #4682b4; /* SteelBlue */
+    color: white;
+    padding: 5px;
+    border: none;
+    font-weight: bold;
+}
+
+/* --------------------------
+   Campos de entrada: texto, combo, fecha, spinbox
+   -------------------------- */
+QLineEdit,
+QComboBox,
+QDateTimeEdit,
+QSpinBox,
+QDoubleSpinBox {
+    background-color: #ffffff;
+    border: 1px solid #87cefa; /* LightSkyBlue */
+    padding: 6px;
+    border-radius: 5px;
+    min-height: 20px; /* Para asegurar altura mínima */
+}
+QComboBox {
+    background-color: #e0f7fa; /* Cyan muy claro */
+    color: #333333;
+    padding-right: 20px; /* Espacio para la flecha */
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox::down-arrow {
+    image: url("placeholder_arrow.png"); /* Reemplaza con un icono de flecha si tienes uno */
+    width: 12px;
+    height: 12px;
+    margin-right: 5px;
+}
+
+QDateTimeEdit::up-button,
+QDateTimeEdit::down-button,
+QSpinBox::up-button,
+QSpinBox::down-button,
+QDoubleSpinBox::up-button,
+QDoubleSpinBox::down-button {
+    border: 1px solid #87cefa;
+    background-color: #e0f7fa;
+    width: 16px;
+    border-radius: 3px;
+}
+QDateTimeEdit::up-arrow,
+QDateTimeEdit::down-arrow,
+QSpinBox::up-arrow,
+QSpinBox::down-arrow,
+QDoubleSpinBox::up-arrow,
+QDoubleSpinBox::down-arrow {
+    width: 8px;
+    height: 8px;
+}
+
+/* --------------------------
+   Botones principales
+   -------------------------- */
+QPushButton {
+    background-color: #4682b4; /* SteelBlue */
+    color: white;
+    border: 1px solid #3d72a4; /* Un poco más oscuro para el borde */
+    border-radius: 5px;
+    padding: 8px 16px;
+    min-width: 100px;
+    font-weight: bold;
+    outline: none; /* Para quitar el foco punteado en algunos estilos de SO */
+}
+QPushButton:hover {
+    background-color: #5a9bd5; /* Un azul más claro para hover */
+}
+QPushButton:pressed {
+    background-color: #315f9b; /* Un azul más oscuro para presionado */
+}
+QPushButton:disabled {
+    background-color: #a9a9a9; /* DarkGray */
+    color: #eeeeee;
+    border: 1px solid #999999;
+}
+
+/* Botones de navegación (Next, Back) */
+QPushButton.navigation {
+    background-color: #4169e1; /* RoyalBlue */
+}
+QPushButton.navigation:hover {
+    background-color: #5a9bd5;
+}
+QPushButton.navigation:pressed {
+    background-color: #315f9b;
+}
+
+/* Botón de envío de examen */
+QPushButton#submitExamButton {
+    background-color: #2e7d32; /* Verde oscuro */
+}
+QPushButton#submitExamButton:hover {
+    background-color: #388e3c;
+}
+QPushButton#submitExamButton:pressed {
+    background-color: #1b5e20;
+}
+
+/* Botones pequeños para añadir/quitar opciones */
+QPushButton.small-action-button {
+    min-width: 25px;
+    max-width: 25px;
+    min-height: 25px;
+    max-height: 25px;
+    padding: 2px;
+    font-size: 14px;
+    font-weight: bold;
+    background-color: #ff6347; /* Tomato */
+}
+QPushButton.small-action-button:hover {
+    background-color: #ff7f50; /* Coral */
+}
+QPushButton#addOptionButton,
+QPushButton#addPairButton,
+QPushButton#addElementButton {
+    background-color: #32cd32; /* LimeGreen */
+    min-width: 120px; /* Ancho normal para estos */
+}
+QPushButton#addOptionButton:hover,
+QPushButton#addPairButton:hover,
+QPushButton#addElementButton:hover {
+    background-color: #54e054;
+}
+
+/* --------------------------
+   Mensajes emergentes
+   -------------------------- */
+QMessageBox {
+    background-color: #f0f8ff; /* AliceBlue */
+    border: 1px solid #87cefa; /* LightSkyBlue */
+}
+QMessageBox QLabel {
+    color: #333333;
+    font-size: 14px; /* Asegura que el texto del mensaje también tenga el tamaño base */
+}
+QMessageBox QPushButton {
+    min-width: 80px; /* Un poco más pequeños que los principales */
+    padding: 6px 12px;
+}
+
+/* --------------------------
+   Barra de Menú
+   -------------------------- */
+QMenuBar {
+    background-color: #5a9bd5; /* Azul claro */
+    color: white;
+    font-weight: bold;
+    border-bottom: 1px solid #4682b4;
+}
+QMenuBar::item {
+    background-color: transparent;
+    padding: 5px 10px;
+}
+QMenuBar::item:selected {
+    background-color: #4682b4; /* SteelBlue */
+    color: white;
+}
+QMenuBar::item:pressed {
+    background-color: #315f9b; /* Azul oscuro */
+}
+
+QMenu {
+    background-color: #f0f8ff; /* AliceBlue */
+    border: 1px solid #87cefa; /* LightSkyBlue */
+    color: #333333;
+}
+QMenu::item {
+    padding: 5px 20px;
+}
+QMenu::item:selected {
+    background-color: #5a9bd5; /* Azul claro */
+    color: white;
+}
+QMenu::separator {
+    height: 1px;
+    background: #87cefa; /* LightSkyBlue */
+    margin: 0 5px;
+}
+
+/* --------------------------
+   ScrollArea y sus contenidos
+   -------------------------- */
+QScrollArea {
+    border: 1px solid #c0dffc; /* Un azul aún más claro */
+    border-radius: 5px;
+    background-color: #ffffff; /* Fondo blanco para el área de scroll */
+}
+
+/* --------------------------
+   Login Window Specifics
+   -------------------------- */
+QWidget#loginWindow {
+    background-color: #e0eaf5; /* Un azul grisáceo claro */
+}
+QLabel#loginTitleLabel {
+    font-size: 20px;
+    font-weight: bold;
+    color: #4169e1; /* RoyalBlue */
+    margin-bottom: 15px;
+    qproperty-alignment: AlignCenter;
+}
+
+/* --------------------------
+   StackedWidget (contenedor principal de vistas)
+   -------------------------- */
+QStackedWidget {
+    /* background-color: transparent; */
+}
+QLabel#welcomeLabel {
+    font-size: 22px;
+    color: #4682b4;
+    qproperty-alignment: AlignCenter;
+}
+
+/* --------------------------
+   Ventana Responder Examen
+   -------------------------- */
+QWidget#examTakingWindow {
+    /* Estilos específicos si es necesario */
+}
+QLabel#examNameLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: #333333;
+    margin-bottom: 5px;
+}
+QLabel#timeLeftLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: #c00000; /* Rojo */
+    margin-bottom: 5px;
+}
+QLabel#questionNumberLabel {
+    font-size: 14px;
+    color: #555555;
+}
+QTextEdit#examQuestionTextDisplay {
+    background-color: #e9f5fe; /* Un azul muy pálido */
+    border: 1px solid #b0d0ef;
+    padding: 10px;
+    border-radius: 5px;
+    min-height: 100px;
+    font-size: 15px; /* Un poco más grande para la pregunta */
+}
+QWidget#optionsContainerWidget {
+    border: 1px solid #d0e0f0;
+    border-radius: 4px;
+    padding: 5px;
+    margin-top: 5px;
+}
