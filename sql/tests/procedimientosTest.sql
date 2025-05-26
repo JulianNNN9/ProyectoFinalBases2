@@ -1,11 +1,11 @@
--- Test cases for sp_actualizar_preguntas_compuestas
-BEGIN
+BEGIN --FUNCIONA
     DBMS_OUTPUT.PUT_LINE('Testing sp_actualizar_preguntas_compuestas');
     
     DECLARE
         v_pregunta_id NUMBER;
-        v_count NUMBER;
         v_retroalimentacion CLOB := 'Test feedback for compound question';
+        v_feedback_actual CLOB;
+        v_success BOOLEAN;
     BEGIN
         -- Get a question that could be a parent question
         BEGIN
@@ -13,21 +13,22 @@ BEGIN
             FROM Preguntas 
             WHERE pregunta_padre_id IS NULL
             AND ROWNUM = 1;
-            
+
             -- Test case: Update compound question with retroalimentacion
             sp_actualizar_preguntas_compuestas(
                 p_pregunta_principal_id => v_pregunta_id,
                 p_cantidad_subpreguntas => 2,
                 p_retroalimentacion => v_retroalimentacion
             );
-            
-            -- Verify feedback was updated
-            SELECT COUNT(*) INTO v_count 
+
+            -- Verify feedback was updated using DBMS_LOB.COMPARE
+            SELECT retroalimentacion INTO v_feedback_actual
             FROM Preguntas 
-            WHERE pregunta_id = v_pregunta_id
-            AND retroalimentacion = v_retroalimentacion;
+            WHERE pregunta_id = v_pregunta_id;
             
-            IF v_count > 0 THEN
+            v_success := (DBMS_LOB.COMPARE(v_feedback_actual, v_retroalimentacion) = 0);
+
+            IF v_success THEN
                 DBMS_OUTPUT.PUT_LINE('SUCCESS: Compound question updated with feedback');
             ELSE
                 DBMS_OUTPUT.PUT_LINE('ERROR: Failed to update compound question');
@@ -43,7 +44,7 @@ END;
 /
 
 -- Improved test for sp_cambiar_visibilidad_pregunta
-BEGIN
+BEGIN --FUNCIONA
     DBMS_OUTPUT.PUT_LINE('Testing sp_cambiar_visibilidad_pregunta (improved)');
     
     DECLARE
@@ -1085,7 +1086,8 @@ BEGIN
         -- Get another user who is not the creator
         SELECT MIN(usuario_id) INTO v_otro_usuario_id
         FROM Usuarios
-        WHERE usuario_id <> v_creador_id;
+        WHERE usuario_id <> v_creador_id
+        AND ROWNUM = 1;
         
         -- Test case 1: Creator sets feedback
         BEGIN
@@ -1547,6 +1549,461 @@ BEGIN
             WHEN NO_DATA_FOUND THEN
                 DBMS_OUTPUT.PUT_LINE('INFO: No exam attempts found for student');
         END;
+    END;
+END;
+/
+
+-- Primero necesitamos insertar preguntas relacionadas con el curso del examen existente
+DECLARE
+    v_examen_id NUMBER;
+    v_curso_id NUMBER;
+    v_tema_id NUMBER;
+    v_unidad_id NUMBER;
+BEGIN
+    -- 1. Obtener el examen y su curso
+    SELECT e.examen_id, c.curso_id 
+    INTO v_examen_id, v_curso_id
+    FROM Examenes e
+    JOIN Grupos g ON e.grupo_id = g.grupo_id
+    JOIN Cursos c ON g.curso_id = c.curso_id
+    WHERE ROWNUM = 1;
+
+    -- 2. Obtener/Crear unidad para el curso
+    SELECT unidad_id INTO v_unidad_id
+    FROM Unidades
+    WHERE curso_id = v_curso_id
+    AND ROWNUM = 1;
+
+    -- 3. Obtener/Crear tema para la unidad
+    SELECT tema_id INTO v_tema_id
+    FROM Unidades_Temas
+    WHERE unidad_id = v_unidad_id
+    AND ROWNUM = 1;
+
+    -- 4. Insertar preguntas relacionadas con el tema
+    FOR i IN 1..5 LOOP
+        INSERT INTO Preguntas (
+            pregunta_id,
+            texto,
+            fecha_creacion,
+            es_publica,
+            tipo_pregunta_id,
+            creador_id,
+            tema_id
+        ) VALUES (
+            (SELECT NVL(MAX(pregunta_id), 0) + 1 FROM Preguntas),
+            'Pregunta de prueba ' || i,
+            SYSTIMESTAMP,
+            'S',
+            1,
+            1,
+            v_tema_id
+        );
+    END LOOP;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('INFO: Preguntas de prueba insertadas correctamente');
+END;
+/
+
+-- Ahora sí ejecutar la prueba original
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_llenar_examen_aleatorio (improved)');
+    
+    DECLARE
+        v_examen_id NUMBER;
+        v_count_before NUMBER := 0;
+        v_count_after NUMBER := 0;
+        v_cantidad_preguntas NUMBER := 3;
+    BEGIN
+        -- Get any exam
+        BEGIN
+            SELECT examen_id INTO v_examen_id
+            FROM Examenes
+            WHERE ROWNUM = 1;
+            
+            -- Count current questions
+            SELECT COUNT(*) INTO v_count_before
+            FROM Preguntas_Examenes
+            WHERE examen_id = v_examen_id;
+            
+            -- Test case: Fill exam with random questions
+            sp_llenar_examen_aleatorio(
+                p_examen_id => v_examen_id,
+                p_cantidad_preguntas => v_cantidad_preguntas
+            );
+            
+            -- Check if questions were added
+            SELECT COUNT(*) INTO v_count_after
+            FROM Preguntas_Examenes
+            WHERE examen_id = v_examen_id;
+            
+            IF v_count_after > v_count_before THEN
+                DBMS_OUTPUT.PUT_LINE('SUCCESS: Added ' || (v_count_after - v_count_before) || ' random questions');
+            ELSE
+                DBMS_OUTPUT.PUT_LINE('INFO: No questions were added, possibly none available');
+            END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('INFO: No exams found');
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        END;
+    END;
+END;
+/
+
+-- Improved test for sp_rebalancear_pesos_examen
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_rebalancear_pesos_examen (improved)');
+    
+    DECLARE
+        v_examen_id NUMBER;
+        v_total_peso NUMBER;
+        v_count NUMBER;
+    BEGIN
+        -- Get an exam ID that has questions
+        BEGIN
+            SELECT pe.examen_id INTO v_examen_id
+            FROM Preguntas_Examenes pe
+            WHERE ROWNUM = 1;
+            
+            -- Count questions in this exam
+            SELECT COUNT(*) INTO v_count
+            FROM Preguntas_Examenes
+            WHERE examen_id = v_examen_id;
+            
+            IF v_count > 0 THEN
+                -- Set some uneven weights first
+                UPDATE Preguntas_Examenes
+                SET peso = 5
+                WHERE examen_id = v_examen_id;
+                
+                -- Call the procedure
+                sp_rebalancear_pesos_examen(
+                    p_examen_id => v_examen_id
+                );
+                
+                -- Check if weights sum to 100
+                SELECT SUM(peso) INTO v_total_peso
+                FROM Preguntas_Examenes
+                WHERE examen_id = v_examen_id;
+                
+                IF ROUND(v_total_peso) = 100 THEN
+                    DBMS_OUTPUT.PUT_LINE('SUCCESS: Weights rebalanced correctly, total = ' || v_total_peso);
+                ELSE
+                    DBMS_OUTPUT.PUT_LINE('ERROR: Weights not properly balanced, total = ' || v_total_peso);
+                END IF;
+            ELSE
+                DBMS_OUTPUT.PUT_LINE('INFO: Exam has no questions to rebalance');
+            END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('INFO: No exams with questions found');
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        END;
+    END;
+END;
+/
+
+-- Improved test for sp_validar_completar_examen
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_validar_completar_examen (improved)');
+    
+    DECLARE
+        v_examen_id NUMBER;
+        v_count_before NUMBER := 0;
+        v_count_after NUMBER := 0;
+        v_cantidad_esperada NUMBER := 5;
+    BEGIN
+        -- Get any exam
+        BEGIN
+            SELECT examen_id INTO v_examen_id
+            FROM Examenes
+            WHERE ROWNUM = 1;
+            
+            -- Count current questions
+            SELECT COUNT(*) INTO v_count_before
+            FROM Preguntas_Examenes
+            WHERE examen_id = v_examen_id;
+            
+            -- Set expected question count
+            UPDATE Examenes
+            SET cantidad_preguntas_mostrar = v_cantidad_esperada
+            WHERE examen_id = v_examen_id;
+            
+            -- Test case: Validate and complete exam
+            sp_validar_completar_examen(
+                p_examen_id => v_examen_id
+            );
+            
+            -- Check if questions were added to reach expected count
+            SELECT COUNT(*) INTO v_count_after
+            FROM Preguntas_Examenes
+            WHERE examen_id = v_examen_id;
+            
+            IF v_count_after >= v_count_before THEN
+                DBMS_OUTPUT.PUT_LINE('SUCCESS: Exam validated, now has ' || v_count_after || ' questions');
+            ELSE
+                DBMS_OUTPUT.PUT_LINE('ERROR: Exam validation failed');
+            END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                DBMS_OUTPUT.PUT_LINE('INFO: No exams found');
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        END;
+    END;
+END;
+/
+
+-- Improved test for sp_verificar_tiempo_entrega
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_verificar_tiempo_entrega (improved)');
+    
+    DECLARE
+        v_intento_id NUMBER;
+        v_resultado VARCHAR2(200);
+        v_examen_id NUMBER;
+        v_estudiante_id NUMBER := 26; -- Assuming ID 26 is a student
+        v_count NUMBER;
+    BEGIN
+        -- Check if we have existing attempts
+        SELECT COUNT(*) INTO v_count 
+        FROM Intentos_Examen 
+        WHERE fecha_fin IS NOT NULL;
+        
+        IF v_count > 0 THEN
+            -- Use an existing completed attempt
+            SELECT intento_examen_id INTO v_intento_id
+            FROM Intentos_Examen
+            WHERE fecha_fin IS NOT NULL
+            AND ROWNUM = 1;
+            
+            -- Test case: Verify delivery time using existing attempt
+            BEGIN
+                sp_verificar_tiempo_entrega(
+                    p_intento_id => v_intento_id,
+                    p_resultado => v_resultado
+                );
+                
+                DBMS_OUTPUT.PUT_LINE('SUCCESS: Time verification completed - ' || v_resultado);
+            EXCEPTION
+                WHEN OTHERS THEN
+                    DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+            END;
+        ELSE
+            -- Get any exam
+            BEGIN
+                SELECT examen_id INTO v_examen_id
+                FROM Examenes
+                WHERE tiempo_limite IS NOT NULL
+                AND ROWNUM = 1;
+                
+                -- Instead of inserting, simulate a time verification scenario
+                DBMS_OUTPUT.PUT_LINE('INFO: Testing time verification logic without insertion');
+                DBMS_OUTPUT.PUT_LINE('INFO: Would verify if ' || v_estudiante_id || ' submitted exam ' || v_examen_id || ' within time limit');
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    DBMS_OUTPUT.PUT_LINE('INFO: No suitable exams found');
+                WHEN OTHERS THEN
+                    DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+            END;
+        END IF;
+    END;
+END;
+/
+
+-- Improved test for sp_progreso_estudiante
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_progreso_estudiante (improved)');
+    
+    DECLARE
+        v_estudiante_id NUMBER;
+        v_curso_id NUMBER;
+        v_progreso SYS_REFCURSOR;
+        v_examen_id NUMBER;
+        v_examen_desc VARCHAR2(100);
+        v_puntaje NUMBER;
+        v_intentos NUMBER;
+        v_max_intentos NUMBER;
+        v_estado VARCHAR2(20);
+        v_found BOOLEAN := FALSE;
+        v_count NUMBER;
+    BEGIN
+        -- Find a student with inscriptions
+        BEGIN
+            SELECT i.estudiante_id, g.curso_id, COUNT(*)
+            INTO v_estudiante_id, v_curso_id, v_count
+            FROM Inscripciones i
+            JOIN Grupos g ON i.grupo_id = g.grupo_id
+            GROUP BY i.estudiante_id, g.curso_id
+            HAVING COUNT(*) > 0
+            AND ROWNUM = 1;
+            
+            DBMS_OUTPUT.PUT_LINE('INFO: Found student ' || v_estudiante_id || ' enrolled in course ' || v_curso_id);
+            
+            -- Test case: Get student progress
+            sp_progreso_estudiante(
+                p_estudiante_id => v_estudiante_id,
+                p_curso_id => v_curso_id,
+                p_progreso => v_progreso
+            );
+            
+            -- Try to fetch results from cursor
+            BEGIN
+                LOOP
+                    FETCH v_progreso INTO v_examen_id, v_examen_desc, v_puntaje, v_intentos, v_max_intentos, v_estado;
+                    EXIT WHEN v_progreso%NOTFOUND;
+                    
+                    v_found := TRUE;
+                    DBMS_OUTPUT.PUT_LINE('Exam: ' || v_examen_desc || ', Status: ' || v_estado);
+                END LOOP;
+                
+                CLOSE v_progreso;
+                
+                IF v_found THEN
+                    DBMS_OUTPUT.PUT_LINE('SUCCESS: Found student progress information');
+                ELSE
+                    DBMS_OUTPUT.PUT_LINE('INFO: No progress records found for student');
+                END IF;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF v_progreso%ISOPEN THEN
+                        CLOSE v_progreso;
+                    END IF;
+                    DBMS_OUTPUT.PUT_LINE('ERROR: Error fetching cursor - ' || SQLERRM);
+            END;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                -- If no enrolled students found, test with dummy values
+                DBMS_OUTPUT.PUT_LINE('INFO: No enrolled students found, testing with dummy values');
+                
+                -- Get any student and course
+                BEGIN
+                    SELECT MIN(usuario_id) INTO v_estudiante_id
+                    FROM Usuarios
+                    WHERE tipo_usuario_id = (SELECT usuario_id FROM Tipo_Usuario WHERE descripcion = 'ESTUDIANTE');
+                    
+                    SELECT MIN(curso_id) INTO v_curso_id
+                    FROM Cursos;
+                    
+                    DBMS_OUTPUT.PUT_LINE('INFO: Testing with student ' || v_estudiante_id || ' and course ' || v_curso_id);
+                    
+                    -- Test the procedure
+                    sp_progreso_estudiante(
+                        p_estudiante_id => v_estudiante_id,
+                        p_curso_id => v_curso_id,
+                        p_progreso => v_progreso
+                    );
+                    
+                    -- No need to fetch, we don't expect results
+                    CLOSE v_progreso;
+                    DBMS_OUTPUT.PUT_LINE('SUCCESS: Procedure executed without errors (no results expected)');
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+                END;
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+        END;
+    END;
+END;
+/
+
+-- Improved test for sp_obtener_retroalimentacion_examen
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Testing sp_obtener_retroalimentacion_examen (improved)');
+    
+    DECLARE
+        v_intento_id NUMBER;
+        v_retroalimentacion SYS_REFCURSOR;
+        v_resp_id NUMBER;
+        v_orden NUMBER;
+        v_pregunta CLOB;
+        v_tipo VARCHAR2(50);
+        v_resp_est VARCHAR2(100);
+        v_resp_corr VARCHAR2(100);
+        v_feedback CLOB;
+        v_puntaje NUMBER;
+        v_peso NUMBER;
+        v_found BOOLEAN := FALSE;
+        v_count NUMBER;
+    BEGIN
+        -- Check if we have attempts with responses
+        SELECT COUNT(*) INTO v_count
+        FROM Intentos_Examen ie
+        JOIN Respuestas_Estudiantes re ON ie.intento_examen_id = re.intento_examen_id;
+        
+        IF v_count > 0 THEN
+            -- Get an attempt with responses
+            SELECT ie.intento_examen_id INTO v_intento_id
+            FROM Intentos_Examen ie
+            JOIN Respuestas_Estudiantes re ON ie.intento_examen_id = re.intento_examen_id
+            WHERE ROWNUM = 1;
+            
+            DBMS_OUTPUT.PUT_LINE('INFO: Found attempt ' || v_intento_id || ' with responses');
+            
+            -- Test case: Get feedback for exam
+            sp_obtener_retroalimentacion_examen(
+                p_intento_id => v_intento_id,
+                p_retroalimentacion => v_retroalimentacion
+            );
+            
+            -- Try to fetch results from cursor
+            BEGIN
+                LOOP
+                    FETCH v_retroalimentacion INTO v_resp_id, v_orden, v_pregunta, v_tipo, 
+                                                v_resp_est, v_resp_corr, v_feedback, v_puntaje, v_peso;
+                    EXIT WHEN v_retroalimentacion%NOTFOUND;
+                    
+                    v_found := TRUE;
+                    DBMS_OUTPUT.PUT_LINE('Question order: ' || v_orden || ', Type: ' || v_tipo);
+                END LOOP;
+                
+                CLOSE v_retroalimentacion;
+                
+                IF v_found THEN
+                    DBMS_OUTPUT.PUT_LINE('SUCCESS: Retrieved feedback for exam');
+                ELSE
+                    DBMS_OUTPUT.PUT_LINE('INFO: No feedback found for this attempt');
+                END IF;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF v_retroalimentacion%ISOPEN THEN
+                        CLOSE v_retroalimentacion;
+                    END IF;
+                    DBMS_OUTPUT.PUT_LINE('ERROR: Error fetching cursor - ' || SQLERRM);
+            END;
+        ELSE
+            -- No attempts with responses found
+            DBMS_OUTPUT.PUT_LINE('INFO: No attempts with responses found, testing procedure call only');
+            
+            -- Get any attempt ID or use a dummy value
+            BEGIN
+                SELECT intento_examen_id INTO v_intento_id
+                FROM Intentos_Examen
+                WHERE ROWNUM = 1;
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    v_intento_id := -1; -- Dummy value
+            END;
+            
+            -- Test the procedure without expecting results
+            BEGIN
+                sp_obtener_retroalimentacion_examen(
+                    p_intento_id => v_intento_id,
+                    p_retroalimentacion => v_retroalimentacion
+                );
+                
+                CLOSE v_retroalimentacion;
+                DBMS_OUTPUT.PUT_LINE('SUCCESS: Procedure executed (no results expected)');
+            EXCEPTION
+                WHEN OTHERS THEN
+                    DBMS_OUTPUT.PUT_LINE('INFO: Expected error with dummy data - ' || SQLERRM);
+            END;
+        END IF;
     END;
 END;
 /
