@@ -1,0 +1,185 @@
+/*==============================================================*/
+/* TEST FUNCTIONS                                                */
+/*==============================================================*/
+
+SET SERVEROUTPUT ON;
+
+-- 1. Test fn_profesor_pertenece_curso
+DECLARE
+  v_resultado BOOLEAN;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_profesor_pertenece_curso:');
+  v_resultado := fn_profesor_pertenece_curso(1, 1);
+  DBMS_OUTPUT.PUT_LINE('Profesor existente: ' || CASE WHEN v_resultado THEN 'PASSED' ELSE 'FAILED' END);
+END;
+/
+
+-- 2. Test fn_pregunta_pertenece_examen
+DECLARE
+  v_resultado BOOLEAN;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_pregunta_pertenece_examen:');
+  v_resultado := fn_pregunta_pertenece_examen(1, 1);
+  DBMS_OUTPUT.PUT_LINE('Pregunta pertenece: ' || CASE WHEN v_resultado THEN 'PASSED' ELSE 'FAILED' END);
+END;
+/
+
+-- 3. Test fn_verificar_elegibilidad
+DECLARE
+  v_resultado VARCHAR2(200);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_verificar_elegibilidad:');
+  v_resultado := fn_verificar_elegibilidad(1, 1);
+  DBMS_OUTPUT.PUT_LINE('Resultado: ' || v_resultado);
+END;
+/
+
+-- 4. Test fn_calificar_opcion_unica
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_opcion_unica:');
+  v_puntaje := fn_calificar_opcion_unica(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 5. Test fn_calificar_opcion_multiple
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_opcion_multiple:');
+  v_puntaje := fn_calificar_opcion_multiple(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 6. Test fn_calificar_verdadero_falso
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_verdadero_falso:');
+  v_puntaje := fn_calificar_verdadero_falso(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 7. Test fn_calificar_ordenamiento
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_ordenamiento:');
+  v_puntaje := fn_calificar_ordenamiento(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 8. Test fn_calificar_emparejamiento
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_emparejamiento:');
+  v_puntaje := fn_calificar_emparejamiento(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 9. Test fn_calificar_completar
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calificar_completar:');
+  v_puntaje := fn_calificar_completar(1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 10. Test fn_calcular_puntaje_compuesto
+DECLARE
+  v_puntaje NUMBER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_calcular_puntaje_compuesto:');
+  v_puntaje := fn_calcular_puntaje_compuesto(1, 1);
+  DBMS_OUTPUT.PUT_LINE('Puntaje: ' || v_puntaje);
+END;
+/
+
+-- 11. Test autenticar_usuario
+DECLARE
+  v_cursor SYS_REFCURSOR;
+  v_usuario_id NUMBER;
+  v_username VARCHAR2(100);
+  v_nombre VARCHAR2(100);
+  v_apellido VARCHAR2(100);
+  v_email VARCHAR2(100);
+  v_role VARCHAR2(20);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing autenticar_usuario:');
+  v_cursor := autenticar_usuario('test@test.com', 'password123');
+  FETCH v_cursor INTO v_usuario_id, v_username, v_nombre, v_apellido, v_email, v_role;
+  DBMS_OUTPUT.PUT_LINE('Autenticación: ' || CASE WHEN v_usuario_id IS NOT NULL THEN 'PASSED' ELSE 'FAILED' END);
+  CLOSE v_cursor;
+END;
+/
+
+-- 12. Test fn_verificar_elegibilidad_pregunta
+DECLARE
+  v_resultado BOOLEAN;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing fn_verificar_elegibilidad_pregunta:');
+  v_resultado := fn_verificar_elegibilidad_pregunta(1, 1);
+  DBMS_OUTPUT.PUT_LINE('Elegibilidad: ' || CASE WHEN v_resultado THEN 'PASSED' ELSE 'FAILED' END);
+END;
+/
+
+-- 13. Test analisis_dificultad_preguntas
+DECLARE
+  v_cursor SYS_REFCURSOR;
+  v_pregunta_id NUMBER;
+  v_texto VARCHAR2(4000);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing analisis_dificultad_preguntas:');
+  v_cursor := analisis_dificultad_preguntas(1);
+  FETCH v_cursor INTO v_pregunta_id, v_texto;
+  DBMS_OUTPUT.PUT_LINE('Análisis: ' || CASE WHEN v_pregunta_id IS NOT NULL THEN 'PASSED' ELSE 'FAILED' END);
+  CLOSE v_cursor;
+END;
+/
+
+-- 14. Test estadisticas_curso
+DECLARE
+  v_cursor SYS_REFCURSOR;
+  v_curso_id NUMBER;
+  v_nombre VARCHAR2(100);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing estadisticas_curso:');
+  v_cursor := estadisticas_curso(1);
+  FETCH v_cursor INTO v_curso_id, v_nombre;
+  DBMS_OUTPUT.PUT_LINE('Estadísticas: ' || CASE WHEN v_curso_id IS NOT NULL THEN 'PASSED' ELSE 'FAILED' END);
+  CLOSE v_cursor;
+END;
+/
+
+-- 15. Test rendimiento_grupos
+DECLARE
+  v_cursor SYS_REFCURSOR;
+  v_grupo_id NUMBER;
+  v_nombre VARCHAR2(100);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing rendimiento_grupos:');
+  v_cursor := rendimiento_grupos(1);
+  FETCH v_cursor INTO v_grupo_id, v_nombre;
+  DBMS_OUTPUT.PUT_LINE('Rendimiento: ' || CASE WHEN v_grupo_id IS NOT NULL THEN 'PASSED' ELSE 'FAILED' END);
+  CLOSE v_cursor;
+END;
+/
+
+-- 16. Test verificar_eligibilidad_pregunta
+DECLARE
+  v_resultado VARCHAR2(200);
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Testing verificar_eligibilidad_pregunta:');
+  v_resultado := verificar_eligibilidad_pregunta(1, 1, 1);
+  DBMS_OUTPUT.PUT_LINE('Eligibilidad: ' || v_resultado);
+END;
+/
